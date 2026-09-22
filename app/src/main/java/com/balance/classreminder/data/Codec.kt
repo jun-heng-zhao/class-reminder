@@ -29,7 +29,7 @@ object Codec {
                     esc(c.id), esc(c.name), esc(c.location), esc(c.teacher),
                     c.dayOfWeek.toString(), c.startPeriod.toString(), c.endPeriod.toString(),
                     c.startWeek.toString(), c.endWeek.toString(), c.parity.name,
-                    c.reminderMinutes.toString(), c.colorIndex.toString(),
+                    c.reminderMinutes.toString(), c.colorIndex.toString(), esc(c.weekSpec),
                 ).joinToString("\t")
             )
         }
@@ -75,6 +75,7 @@ object Codec {
                             .getOrDefault(WeekParity.ALL),
                         reminderMinutes = f.getOrNull(11)?.toIntOrNull() ?: -1,
                         colorIndex = f.getOrNull(12)?.toIntOrNull() ?: 0,
+                        weekSpec = unesc(f.getOrNull(13).orEmpty()),
                     )
                 }
             }

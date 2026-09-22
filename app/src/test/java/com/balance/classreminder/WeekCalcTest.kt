@@ -102,6 +102,47 @@ class WeekCalcTest {
     }
 
     @Test
+    fun parseWeeks_handlesListsAndRanges() {
+        assertEquals(setOf(15, 16), WeekCalc.parseWeeks("15,16", 20))
+        assertEquals(setOf(1, 2, 3, 4, 6, 7, 8), WeekCalc.parseWeeks("1-4,6-8", 20))
+        assertEquals(setOf(11), WeekCalc.parseWeeks("11-11", 20))
+        assertEquals(setOf(1, 3, 5), WeekCalc.parseWeeks("1-5单", 20))
+        assertEquals(setOf(2, 4, 6), WeekCalc.parseWeeks("1-6", 20).filter { it % 2 == 0 }.toSet())
+    }
+
+    @Test
+    fun weeksOf_usesSpecAndParity() {
+        val onlyLate = course().copy(weekSpec = "15,16", startWeek = 15, endWeek = 16)
+        assertTrue(WeekCalc.weekMatches(onlyLate, 15))
+        assertTrue(WeekCalc.weekMatches(onlyLate, 16))
+        assertFalse(WeekCalc.weekMatches(onlyLate, 1))
+        assertFalse(WeekCalc.weekMatches(onlyLate, 17))
+
+        val oddSpec = course().copy(weekSpec = "2-16", parity = WeekParity.ODD)
+        assertTrue(WeekCalc.weekMatches(oddSpec, 3))
+        assertFalse(WeekCalc.weekMatches(oddSpec, 4))
+    }
+
+    @Test
+    fun upcoming_onlySchedulesWeeksTheCourseRuns() {
+        // 九月七日开学，第 1 周；这门课只在第 15、16 周上
+        val settings = AppSettings(termStartDate = term.toString())
+        val late = course(dayOfWeek = 1).copy(
+            weekSpec = "15,16",
+            startWeek = 15,
+            endWeek = 16,
+        )
+        val week15Monday = term.plusWeeks(14)   // 第 15 周的周一
+        val now = LocalDateTime.of(week15Monday, LocalTime.of(7, 0))
+
+        val list = WeekCalc.upcoming(listOf(late), settings, now, horizonDays = 6)
+
+        assertEquals(1, list.size)
+        assertEquals(15, list[0].week)
+        assertEquals(week15Monday, list[0].start.toLocalDate())
+    }
+
+    @Test
     fun upcoming_respectsReminderOverride() {
         val settings = AppSettings(termStartDate = term.toString(), defaultReminderMinutes = 20)
         val custom = course().copy(reminderMinutes = 5)

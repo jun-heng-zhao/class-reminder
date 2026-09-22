@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import com.balance.classreminder.data.Course
 import com.balance.classreminder.data.DAY_NAMES
 import com.balance.classreminder.data.WeekParity
+import com.balance.classreminder.domain.WeekCalc
 
 /** 手动添加/修改一门课。所有字段都可改，改完点保存。 */
 @Composable
@@ -46,6 +47,7 @@ fun EditCourseDialog(
     var startWeek by remember(course.id) { mutableStateOf(course.startWeek.toString()) }
     var endWeek by remember(course.id) { mutableStateOf(course.endWeek.toString()) }
     var parity by remember(course.id) { mutableStateOf(course.parity) }
+    var weekSpec by remember(course.id) { mutableStateOf(course.weekSpec) }
     var remind by remember(course.id) { mutableStateOf(course.reminderMinutes.toString()) }
 
     AlertDialog(
@@ -127,6 +129,15 @@ fun EditCourseDialog(
                     )
                 }
 
+                OutlinedTextField(
+                    value = weekSpec,
+                    onValueChange = { weekSpec = it },
+                    label = { Text("周次（不规则时填，如 15,16 或 1-4,6-8）") },
+                    supportingText = { Text("只在第 15、16 周上的课就填 15,16；留空则用上面的起止周", fontSize = 10.sp) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                )
+
                 Text("单双周", fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
                 Row {
                     FilterChip(
@@ -161,8 +172,16 @@ fun EditCourseDialog(
             TextButton(onClick = {
                 val sp = (startPeriod.toIntOrNull() ?: 1).coerceAtLeast(1)
                 val ep = (endPeriod.toIntOrNull() ?: sp).coerceAtLeast(sp)
-                val sw = (startWeek.toIntOrNull() ?: 1).coerceAtLeast(1)
-                val ew = (endWeek.toIntOrNull() ?: sw).coerceAtLeast(sw)
+                var sw = (startWeek.toIntOrNull() ?: 1).coerceAtLeast(1)
+                var ew = (endWeek.toIntOrNull() ?: sw).coerceAtLeast(sw)
+                val spec = weekSpec.trim()
+                if (spec.isNotEmpty()) {
+                    val weeks = WeekCalc.parseWeeks(spec, 30)
+                    if (weeks.isNotEmpty()) {
+                        sw = weeks.first()
+                        ew = weeks.last()
+                    }
+                }
                 onSave(
                     course.copy(
                         name = name.trim().ifBlank { "未命名课程" },
@@ -175,6 +194,7 @@ fun EditCourseDialog(
                         endWeek = ew,
                         parity = parity,
                         reminderMinutes = remind.trim().toIntOrNull() ?: -1,
+                        weekSpec = spec,
                     )
                 )
             }) { Text("保存") }

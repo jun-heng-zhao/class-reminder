@@ -29,6 +29,8 @@ data class ParsedCourse(
     val parity: com.balance.classreminder.data.WeekParity,
     val rawText: String,
     val confidence: Float,
+    /** 原始周次写法，如 "15,16"（不规则周次要靠它）。 */
+    val weekSpec: String = "",
 )
 
 data class ParseResult(

@@ -19,6 +19,11 @@ data class Course(
     val parity: WeekParity = WeekParity.ALL,
     val reminderMinutes: Int = -1, // -1 表示跟随全局默认
     val colorIndex: Int = 0,
+    /**
+     * 不规则周次，例如 "15,16" 或 "1-4,6-8" 或 "1-16双"。
+     * 非空时以它为准（有些课只在第 15、16 周上，光靠起止周表达不了）。
+     */
+    val weekSpec: String = "",
 )
 
 /** 第 n 节的起止时间，用"当天第几分钟"表示，方便算差值。 */
@@ -64,20 +69,21 @@ data class AppSettings(
     val periods: List<PeriodTime> = defaultPeriods(),
 )
 
-/** 常见高校作息：上午 4 节、下午 4 节、晚上 4 节。设置页可改。 */
+/** 华侨大学作息时间表（教务处 2022-08-22 发布），第 1…13 节。设置页可改。 */
 fun defaultPeriods(): List<PeriodTime> = listOf(
     PeriodTime.of("08:00", "08:45"),
     PeriodTime.of("08:55", "09:40"),
     PeriodTime.of("10:00", "10:45"),
     PeriodTime.of("10:55", "11:40"),
-    PeriodTime.of("14:00", "14:45"),
-    PeriodTime.of("14:55", "15:40"),
-    PeriodTime.of("16:00", "16:45"),
-    PeriodTime.of("16:55", "17:40"),
-    PeriodTime.of("19:00", "19:45"),
-    PeriodTime.of("19:55", "20:40"),
-    PeriodTime.of("20:50", "21:35"),
-    PeriodTime.of("21:45", "22:30"),
+    PeriodTime.of("11:45", "12:30"),
+    PeriodTime.of("14:30", "15:15"),
+    PeriodTime.of("15:25", "16:10"),
+    PeriodTime.of("16:20", "17:05"),
+    PeriodTime.of("17:15", "18:00"),
+    PeriodTime.of("18:20", "19:05"),
+    PeriodTime.of("19:10", "19:55"),
+    PeriodTime.of("20:05", "20:50"),
+    PeriodTime.of("20:55", "21:40"),
 )
 
 val DAY_NAMES = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")

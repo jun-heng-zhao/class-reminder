@@ -150,13 +150,118 @@ class GridParserTest {
         assertEquals("A402", result.courses[0].location)
     }
 
+    // ---- 纵向课表：教务系统那种"星期是行、节次是列"的表格 ----
+
+    /** 表头：星期/节次 + 上午/下午 + 第X-Y节 时间带。 */
+    private fun bandHeader() = listOf(
+        box("星期/节次", 60, 205, w = 90),
+        box("上午", 250, 190, w = 60),
+        box("第1-2节", 250, 222, w = 70),
+        box("上午", 450, 190, w = 60),
+        box("第3-5节", 450, 222, w = 70),
+        box("下午", 650, 190, w = 60),
+        box("第6-7节", 650, 222, w = 70),
+    )
+
+    private fun dayColumn() = listOf(
+        box("一", 30, 300, w = 24),
+        box("二", 30, 400, w = 24),
+        box("三", 30, 500, w = 24),
+        box("四", 30, 600, w = 24),
+        box("五", 30, 700, w = 24),
+    )
+
+    @Test
+    fun parse_verticalTimetable_withBrowserChromeAround() {
+        val boxes = listOf(
+            // 截图里的浏览器标签、地址栏、状态栏，都不该进网格
+            box("12:34", 30, 10, w = 60),
+            box("我的课表", 130, 60, w = 90),
+            box("华侨大学教务处", 200, 40, w = 150),
+            box("jwapp.hqu.edu.cn/jwapp/sys/wdkb", 400, 110, w = 400),
+        ) + bandHeader() + dayColumn() + listOf(
+            // 周一那一行：格子里的 4 行文字垂直排布在"一"这一行附近
+            box("移动软件开发(3学分)", 250, 265, w = 220),
+            box("郭武斌", 250, 285, w = 80),
+            box("经3-1", 250, 305, w = 70),
+            box("1-16周 第1节-第2节", 250, 325, w = 180),
+            // 周二那一行
+            box("大学英语(2学分)", 450, 365, w = 180),
+            box("张老师", 450, 385, w = 80),
+            box("外语楼305", 450, 405, w = 110),
+            box("2-16周(双) 第3节-第4节", 450, 425, w = 200),
+        )
+
+        val result = GridParser.parse(boxes, defaultTotalWeeks = 20)
+        assertEquals(2, result.courses.size)
+
+        val mm = result.courses.first { it.name == "移动软件开发" }
+        assertEquals(1, mm.dayOfWeek)          // 一
+        assertEquals(1, mm.period)             // 第1节
+        assertEquals(2, mm.endPeriod)          // 第2节
+        assertEquals("经3-1", mm.location)
+        assertEquals("郭武斌", mm.teacher)
+        assertEquals(1, mm.startWeek)
+        assertEquals(16, mm.endWeek)
+
+        val en = result.courses.first { it.name == "大学英语" }
+        assertEquals(2, en.dayOfWeek)          // 二
+        assertEquals(3, en.period)             // 第3节
+        assertEquals(4, en.endPeriod)          // 第4节
+        assertEquals("外语楼305", en.location)
+        assertEquals(WeekParity.EVEN, en.parity)
+        assertEquals(2, en.startWeek)
+        assertEquals(16, en.endWeek)
+    }
+
+    @Test
+    fun parse_verticalTimetable_usesBandWhenTextHasNoPeriod() {
+        val boxes = bandHeader() + dayColumn() + listOf(
+            box("体育", 450, 300, w = 70),
+            box("操场", 450, 330, w = 70),
+            box("1-16周", 450, 360, w = 90),
+        )
+
+        val result = GridParser.parse(boxes, defaultTotalWeeks = 20)
+
+        assertEquals(1, result.courses.size)
+        val pe = result.courses[0]
+        assertEquals("体育", pe.name)
+        assertEquals("操场", pe.location)
+        assertEquals(3, pe.period)   // 时间带"第3-5节"的起点
+        assertEquals(5, pe.endPeriod)
+    }
+
+    /** 只上某几周的课（华大课表里真有 15、16 周这种写法）。 */
+    @Test
+    fun parse_keepsIrregularWeekSpec() {
+        val boxes = headerRow() + listOf(
+            box("3", 20, 55, w = 20),
+            box("形势与政策(五)(0.25学分)", 315, 50, w = 240),
+            box("徐文福", 315, 70, w = 80),
+            box("经302", 315, 90, w = 70),
+            box("15,16周 第3节-第4节", 315, 110, w = 200),
+        )
+
+        val result = GridParser.parse(boxes, defaultTotalWeeks = 20)
+
+        assertEquals(1, result.courses.size)
+        val c = result.courses[0]
+        assertEquals("形势与政策(五)", c.name)
+        assertEquals("经302", c.location)
+        assertEquals("15,16", c.weekSpec)
+        assertEquals(15, c.startWeek)
+        assertEquals(16, c.endWeek)
+    }
+
     @Test
     fun parse_reportsWarningWhenNoHeader() {        val boxes = listOf(
             box("高等数学", 115, 50),
             box("教三201", 115, 70),
         )
         val result = GridParser.parse(boxes, defaultTotalWeeks = 20)
-        assertTrue(result.warnings.any { it.contains("表头") })
+        assertTrue(result.warnings.isNotEmpty())
+        assertEquals(0, result.courses.size)
     }
 
     @Test
@@ -164,5 +269,32 @@ class GridParserTest {
         val result = GridParser.parse(emptyList(), defaultTotalWeeks = 20)
         assertEquals(0, result.courses.size)
         assertTrue(result.warnings.isNotEmpty())
+    }
+
+    /**
+     * 用手机上真机跑出来的 OCR 原文（带坐标）回放一遍，
+     * 保证"教务系统截图 + 浏览器边框 + 缺星期字"这种真实情况不会退化。
+     */
+    @Test
+    fun parse_realJwappScreenshotDump() {
+        val text = javaClass.classLoader!!.getResourceAsStream("ocr_dump_real.txt")!!
+            .bufferedReader().readText()
+        val boxes = text.lineSequence().mapNotNull { line ->
+            val m = Regex("^x=(-?\\d+) y=(-?\\d+) \\| (.*)$").find(line) ?: return@mapNotNull null
+            val cx = m.groupValues[1].toInt()
+            val cy = m.groupValues[2].toInt()
+            // 原文只留了中心点，这里按平均字宽还原成一个框
+            OcrBox(m.groupValues[3], cx - 40, cy - 10, cx + 40, cy + 10)
+        }.toList()
+        assertTrue(boxes.size > 50)
+
+        val result = GridParser.parse(boxes, defaultTotalWeeks = 20)
+        println("REAL warnings=${result.warnings}")
+        result.courses.forEach { println("REAL COURSE: $it") }
+
+        val names = result.courses.map { it.name }
+        assertTrue("应该认出移动软件开发，实际=$names", names.any { it.contains("移动软件") })
+        assertTrue("应该认出决策支持系统，实际=$names", names.any { it.contains("决策支持") })
+        assertTrue("应该认出形势与政策，实际=$names", names.any { it.contains("形势与政策") })
     }
 }

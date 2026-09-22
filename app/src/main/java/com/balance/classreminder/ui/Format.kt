@@ -9,7 +9,9 @@ fun courseSubtitle(course: Course): String = buildString {
     append(dayName(course.dayOfWeek))
     append(" 第 ").append(course.startPeriod)
     if (course.endPeriod != course.startPeriod) append("-").append(course.endPeriod)
-    append(" 节 · ").append(course.startWeek).append("-").append(course.endWeek).append(" 周")
+    append(" 节 · ")
+    if (course.weekSpec.isNotBlank()) append(course.weekSpec).append(" 周")
+    else append(course.startWeek).append("-").append(course.endWeek).append(" 周")
     when (course.parity) {
         WeekParity.ODD -> append("（单周）")
         WeekParity.EVEN -> append("（双周）")

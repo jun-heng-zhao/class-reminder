@@ -43,6 +43,7 @@ import com.balance.classreminder.ocr.TimetableOcr
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.UUID
 
 /** 选图 → 离线 OCR → 网格还原 → 人工核对 → 入库。识别结果永远不直接覆盖已有课表。 */
@@ -68,6 +69,8 @@ fun ImportScreen(settings: AppSettings, onImport: (List<Course>) -> Unit) {
                 rawDump = boxes
                     .sortedWith(compareBy({ it.top }, { it.left }))
                     .joinToString("\n") { "x=${it.centerX} y=${it.centerY} | ${it.text}" }
+                // 留在缓存里，识别不准时可以直接取出来定位问题
+                runCatching { File(context.cacheDir, "ocr_dump.txt").writeText(rawDump) }
                 withContext(Dispatchers.Default) { GridParser.parse(boxes, settings.totalWeeks) }
             }.onSuccess { result ->
                 drafts = result.courses.map { it.toCourse() }
@@ -220,4 +223,5 @@ private fun ParsedCourse.toCourse(): Course = Course(
     parity = parity,
     reminderMinutes = -1,
     colorIndex = (dayOfWeek + period).mod(8),
+    weekSpec = weekSpec,
 )

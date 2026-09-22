@@ -34,15 +34,56 @@ object WeekCalc {
 
     fun parseDate(iso: String): LocalDate? = runCatching { LocalDate.parse(iso.trim()) }.getOrNull()
 
-    /** 该周次是否落在课程的周次范围内（含单双周过滤）。 */
-    fun weekMatches(course: Course, week: Int): Boolean {
-        if (week < course.startWeek || week > course.endWeek) return false
-        return when (course.parity) {
-            WeekParity.ALL -> true
-            WeekParity.ODD -> week % 2 == 1
-            WeekParity.EVEN -> week % 2 == 0
+    /**
+     * 这门课到底上哪些周。
+     * 有 [Course.weekSpec] 就按它解析（"15,16" 这种只在第 15、16 周上的课靠它表达），
+     * 否则回退到"起止周 + 单双周"。
+     */
+    fun weeksOf(course: Course, totalWeeks: Int = 52): Set<Int> {
+        if (course.weekSpec.isNotBlank()) {
+            val parsed = parseWeeks(course.weekSpec, totalWeeks)
+            // 单双周单独存在 parity 里，spec 只管周次集合
+            if (parsed.isNotEmpty()) return parsed.filter { parityMatches(course.parity, it) }.toSet()
+        }
+        return (course.startWeek..course.endWeek)
+            .filter { parityMatches(course.parity, it) }
+            .toSet()
+    }
+
+    /** 解析 "1-16" / "15,16" / "1-4,6-8" / "1-16单" / "13-14" 这类写法。 */
+    fun parseWeeks(spec: String, totalWeeks: Int = 52): Set<Int> {
+        val weeks = sortedSetOf<Int>()
+        val odd = spec.contains("单")
+        val even = spec.contains("双")
+        var rest = spec
+
+        Regex("(\\d{1,2})\\s*[-~—－至]\\s*(\\d{1,2})").findAll(spec).forEach { m ->
+            val a = m.groupValues[1].toIntOrNull() ?: return@forEach
+            val b = m.groupValues[2].toIntOrNull() ?: return@forEach
+            val from = minOf(a, b)
+            val to = maxOf(a, b)
+            (from..to).forEach { if (it in 1..totalWeeks) weeks += it }
+            rest = rest.replace(m.value, " ")
+        }
+        Regex("\\d{1,2}").findAll(rest).forEach { m ->
+            val w = m.value.toIntOrNull() ?: return@forEach
+            if (w in 1..totalWeeks) weeks += w
+        }
+        return when {
+            odd && !even -> weeks.filter { it % 2 == 1 }.toSortedSet()
+            even && !odd -> weeks.filter { it % 2 == 0 }.toSortedSet()
+            else -> weeks
         }
     }
+
+    private fun parityMatches(parity: WeekParity, week: Int): Boolean = when (parity) {
+        WeekParity.ALL -> true
+        WeekParity.ODD -> week % 2 == 1
+        WeekParity.EVEN -> week % 2 == 0
+    }
+
+    /** 该周次是否落在课程的周次范围内（含单双周与不规则周次）。 */
+    fun weekMatches(course: Course, week: Int): Boolean = weeksOf(course).contains(week)
 
     /** 这天有没有这门课。 */
     fun courseOnDate(course: Course, termStartMonday: LocalDate, date: LocalDate): Boolean {
