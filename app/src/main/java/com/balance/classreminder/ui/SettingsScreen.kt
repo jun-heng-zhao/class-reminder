@@ -20,6 +20,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
+import com.balance.classreminder.data.Store
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -49,6 +50,7 @@ fun SettingsScreen(
     onTestNotification: () -> Unit,
 ) {
     val context = LocalContext.current
+    var dataMessage by remember { mutableStateOf("") }
     val notificationsOn = NotificationManagerCompat.from(context).areNotificationsEnabled()
     val exactAlarmOn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         context.getSystemService(AlarmManager::class.java)?.canScheduleExactAlarms() ?: false
@@ -141,6 +143,26 @@ fun SettingsScreen(
                 },
             )
         }
+
+        HorizontalDivider(Modifier.padding(vertical = 12.dp))
+
+        Text("课表数据", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("换手机、重装应用前先导出；内部数据空了会从这份备份自动恢复。", fontSize = 12.sp)
+        Row(Modifier.padding(top = 4.dp)) {
+            OutlinedButton(onClick = {
+                val path = Store.get(context).exportToExternal()
+                dataMessage = path?.let { "已导出到：$it" } ?: "导出失败（外部存储不可用）"
+            }) { Text("导出课表") }
+            Spacer(Modifier.width(8.dp))
+            OutlinedButton(onClick = {
+                dataMessage = if (Store.get(context).importFromExternal()) "已从备份恢复"
+                else "外部目录里没有备份文件"
+            }) { Text("从备份恢复") }
+        }
+        if (dataMessage.isNotBlank()) {
+            Text(dataMessage, fontSize = 11.sp)
+        }
+        Text("备份路径：Android/data/com.balance.classreminder/files/schedule.txt", fontSize = 10.sp)
 
         HorizontalDivider(Modifier.padding(vertical = 12.dp))
 
