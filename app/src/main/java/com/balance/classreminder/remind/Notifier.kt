@@ -6,7 +6,10 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
+import android.media.MediaPlayer
 import android.media.RingtoneManager
+import android.os.Handler
+import android.os.Looper
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.balance.classreminder.MainActivity
@@ -78,5 +81,38 @@ object Notifier {
         val manager = NotificationManagerCompat.from(context)
         if (!manager.areNotificationsEnabled()) return
         runCatching { manager.notify(id, builder.build()) }
+        // 强提醒直接自己放铃声：MIUI 上渠道声音经常被系统按"通知"处理，靠渠道响不起来
+        if (strong) playAlarm(context)
+    }
+
+    /**
+     * 用 MediaPlayer 走闹钟音频流放一段铃声。
+     * 渠道声音在 HyperOS 上不一定响（通知被折叠/静音策略影响），自己放最稳。
+     */
+    private fun playAlarm(context: Context) {
+        runCatching {
+            val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                ?: return
+            val player = MediaPlayer().apply {
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                )
+                setDataSource(context, uri)
+                isLooping = true
+                prepare()
+                start()
+            }
+            Handler(Looper.getMainLooper()).postDelayed({
+                runCatching {
+                    if (player.isPlaying) player.stop()
+                    player.release()
+                }
+            }, 20_000)
+        }
     }
 }

@@ -19,11 +19,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -37,6 +42,7 @@ import androidx.core.app.NotificationManagerCompat
 import com.balance.classreminder.data.AppSettings
 import com.balance.classreminder.data.Course
 import com.balance.classreminder.data.DAY_NAMES
+import com.balance.classreminder.data.dayName
 import com.balance.classreminder.domain.WeekCalc
 
 private val PALETTE = listOf(
@@ -57,6 +63,7 @@ fun ScheduleScreen(
 ) {
     val periods = settings.periods
     val context = LocalContext.current
+    var listMode by remember { mutableStateOf(false) }
     val notificationsOff = !NotificationManagerCompat.from(context).areNotificationsEnabled()
     val exactAlarmOff = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
         !(context.getSystemService(AlarmManager::class.java)?.canScheduleExactAlarms() ?: false)
@@ -98,6 +105,21 @@ fun ScheduleScreen(
             }
         }
 
+        Row(Modifier.padding(top = 4.dp)) {
+            FilterChip(
+                selected = !listMode,
+                onClick = { listMode = false },
+                label = { Text("表格") },
+                modifier = Modifier.padding(end = 6.dp),
+            )
+            FilterChip(
+                selected = listMode,
+                onClick = { listMode = true },
+                label = { Text("列表") },
+            )
+        }
+
+        if (!listMode) {
         // 星期表头
         Row(Modifier.fillMaxWidth().padding(top = 6.dp)) {
             Spacer(Modifier.width(26.dp))
@@ -161,6 +183,55 @@ fun ScheduleScreen(
                         }
                     }
                 }
+            }
+        }
+
+        } else {
+            // 列表模式：按星期分组，一眼看清"几点、去哪、上什么"
+            var anyThisWeek = false
+            (1..7).forEach { day ->
+                val dayCourses = courses
+                    .filter { it.dayOfWeek == day && WeekCalc.weekMatches(it, week) }
+                    .sortedBy { it.startPeriod }
+                if (dayCourses.isEmpty()) return@forEach
+                anyThisWeek = true
+                Text(
+                    dayName(day) + "（${dayCourses.size} 门）",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    modifier = Modifier.padding(top = 10.dp, bottom = 2.dp),
+                )
+                dayCourses.forEach { course ->
+                    val start = periods.getOrNull(course.startPeriod - 1)?.startLabel.orEmpty()
+                    val end = periods.getOrNull(course.endPeriod - 1)?.endLabel.orEmpty()
+                    Card(
+                        Modifier.fillMaxWidth().padding(vertical = 3.dp).clickable { onEdit(course) }
+                    ) {
+                        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                Modifier
+                                    .width(6.dp)
+                                    .height(38.dp)
+                                    .background(PALETTE[course.colorIndex.mod(PALETTE.size)])
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(course.name, fontWeight = FontWeight.Medium, fontSize = 15.sp)
+                                Text(
+                                    "$start-$end · 第 ${course.startPeriod}" +
+                                        (if (course.endPeriod != course.startPeriod) "-${course.endPeriod}" else "") +
+                                        " 节",
+                                    fontSize = 12.sp,
+                                )
+                                Text(courseSubtitle(course), fontSize = 11.sp)
+                            }
+                            Text("修改", fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+            if (!anyThisWeek) {
+                Text("第 $week 周没有课", fontSize = 13.sp, modifier = Modifier.padding(vertical = 12.dp))
             }
         }
 

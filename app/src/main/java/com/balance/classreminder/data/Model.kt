@@ -61,12 +61,27 @@ fun parseMinute(label: String): Int {
     }
 }
 
+/** 某一天的例外安排：放假，或者按别的星期几上课（法定调休）。 */
+enum class DayKind { NORMAL, HOLIDAY, SWAP }
+
+/**
+ * 调休/放假日。国家法定节假日调休经常把周六变成"上周三的课"，
+ * 这种日子光靠"第几周+星期几"算不出来，必须逐日覆盖。
+ */
+data class DayOverride(
+    val date: String,                 // yyyy-MM-dd
+    val kind: DayKind,
+    val swapToDayOfWeek: Int = 1,     // kind=SWAP：这天按星期几的课表上
+    val note: String = "",
+)
+
 data class AppSettings(
     val termStartDate: String = "",          // ISO yyyy-MM-dd，第一周的周一
     val totalWeeks: Int = 20,
     val defaultReminderMinutes: Int = 20,
     val strongReminder: Boolean = false,     // true=响铃震动并尝试全屏提醒
     val periods: List<PeriodTime> = defaultPeriods(),
+    val overrides: List<DayOverride> = emptyList(),
 )
 
 /** 华侨大学作息时间表（教务处 2022-08-22 发布），第 1…13 节。设置页可改。 */

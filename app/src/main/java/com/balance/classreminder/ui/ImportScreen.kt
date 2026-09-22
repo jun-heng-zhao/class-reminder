@@ -1,11 +1,12 @@
 package com.balance.classreminder.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.widget.Toast
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -37,49 +39,98 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.balance.classreminder.data.AppSettings
 import com.balance.classreminder.data.Course
+import com.balance.classreminder.data.PeriodTime
+import com.balance.classreminder.ocr.CalendarParser
 import com.balance.classreminder.ocr.GridParser
+import com.balance.classreminder.ocr.ParseResult
 import com.balance.classreminder.ocr.ParsedCourse
+import com.balance.classreminder.ocr.PeriodParser
 import com.balance.classreminder.ocr.TimetableOcr
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.time.LocalDate
 import java.util.UUID
 
-/** 选图 → 离线 OCR → 网格还原 → 人工核对 → 入库。识别结果永远不直接覆盖已有课表。 */
+/** 三种图都能导入：课表、作息时间表、教学校历。 */
+private enum class ImportKind(val label: String, val hint: String) {
+    TIMETABLE("课表图片", "教务系统的课表截图，或者手写课表的照片"),
+    PERIODS("作息时间图片", "学校作息时间表，用来填每节课几点上下课"),
+    CALENDAR("校历图片", "教学校历，用来定「第一周」是哪天、一学期多少教学周"),
+}
+
 @Composable
-fun ImportScreen(settings: AppSettings, onImport: (List<Course>) -> Unit) {
+fun ImportScreen(
+    settings: AppSettings,
+    onImportCourses: (List<Course>) -> Unit,
+    onChangeSettings: (AppSettings) -> Unit,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
+    var kind by remember { mutableStateOf(ImportKind.TIMETABLE) }
     var busy by remember { mutableStateOf(false) }
-    var status by remember { mutableStateOf("选一张课表截图或照片，自动识别成课程") }
+    var status by remember { mutableStateOf("") }
+    var rawDump by remember { mutableStateOf("") }
+
     var drafts by remember { mutableStateOf<List<Course>>(emptyList()) }
     var raws by remember { mutableStateOf<List<String>>(emptyList()) }
     var warnings by remember { mutableStateOf<List<String>>(emptyList()) }
-    var rawDump by remember { mutableStateOf("") }
     var editingIndex by remember { mutableStateOf<Int?>(null) }
+    var parsedPeriods by remember { mutableStateOf<List<PeriodTime?>>(emptyList()) }
+    var calendarResult by remember { mutableStateOf<CalendarParser.Result?>(null) }
 
-    val recognize: (android.net.Uri) -> Unit = { uri ->
+    fun resetResults() {
+        drafts = emptyList()
+        raws = emptyList()
+        warnings = emptyList()
+        parsedPeriods = emptyList()
+        calendarResult = null
+    }
+
+    val recognize: (Uri) -> Unit = { uri ->
         busy = true
-        status = "识别中，请稍等…（首次识别需要几秒）"
+        status = "识别中，请稍等…"
         scope.launch {
             runCatching {
                 val boxes = TimetableOcr.recognize(context, uri)
-                rawDump = boxes
-                    .sortedWith(compareBy({ it.top }, { it.left }))
+                rawDump = boxes.sortedWith(compareBy({ it.top }, { it.left }))
                     .joinToString("\n") { "x=${it.centerX} y=${it.centerY} | ${it.text}" }
-                // 留在缓存里，识别不准时可以直接取出来定位问题
                 runCatching { File(context.cacheDir, "ocr_dump.txt").writeText(rawDump) }
-                withContext(Dispatchers.Default) { GridParser.parse(boxes, settings.totalWeeks) }
+                withContext(Dispatchers.Default) {
+                    when (kind) {
+                        ImportKind.TIMETABLE -> GridParser.parse(boxes, settings.totalWeeks)
+                        ImportKind.PERIODS -> PeriodParser.parse(boxes)
+                        ImportKind.CALENDAR -> CalendarParser.parse(boxes, LocalDate.now().year)
+                    }
+                }
             }.onSuccess { result ->
-                drafts = result.courses.map { it.toCourse() }
-                raws = result.courses.map { it.rawText }
-                warnings = result.warnings
-                status = if (drafts.isEmpty()) {
-                    "没识别出课程。换张更清晰、表格线明显的图，或者直接手动添加。"
-                } else {
-                    "识别出 ${drafts.size} 门课，核对下面的内容，改好再导入"
+                resetResults()
+                when (result) {
+                    is ParseResult -> {
+                        drafts = result.courses.map { it.toCourse() }
+                        raws = result.courses.map { it.rawText }
+                        warnings = result.warnings
+                        status = if (drafts.isEmpty()) "没识别出课程，换张更清晰的图，或手动添加"
+                        else "识别出 ${drafts.size} 门课，核对后导入"
+                    }
+                    is CalendarParser.Result -> {
+                        calendarResult = result
+                        status = if (result.firstWeekMonday != null) {
+                            "读到第一周周一：${result.firstWeekMonday}"
+                        } else {
+                            "没读到开学日期，看下面的线索在设置页手动填"
+                        }
+                    }
+                    is List<*> -> {
+                        @Suppress("UNCHECKED_CAST")
+                        parsedPeriods = result as List<PeriodTime?>
+                        val filled = parsedPeriods.count { it != null }
+                        status = if (filled >= 4) "读到 $filled 节时间，核对后应用"
+                        else "没读到完整的作息时间，换张更清晰的图，或在设置页手动填"
+                    }
+                    else -> status = "识别完成"
                 }
                 busy = false
             }.onFailure { e ->
@@ -92,7 +143,6 @@ fun ImportScreen(settings: AppSettings, onImport: (List<Course>) -> Unit) {
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) recognize(uri)
     }
-    // 相册里看不到的图（比如刚从电脑传进 Download 的截图）走文件选择器
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) recognize(uri)
     }
@@ -103,14 +153,26 @@ fun ImportScreen(settings: AppSettings, onImport: (List<Course>) -> Unit) {
             .verticalScroll(rememberScrollState())
             .padding(12.dp)
     ) {
-        Text("导入课表图片", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        Text(
-            "图片只在本机识别，不会联网上传。识别完先核对，再决定要不要导入。",
-            fontSize = 12.sp,
-            modifier = Modifier.padding(vertical = 4.dp),
-        )
+        Text("导入", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("图片只在本机识别，不联网。识别完先核对，再决定要不要应用。", fontSize = 12.sp)
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(vertical = 6.dp)) {
+            ImportKind.entries.forEach { k ->
+                FilterChip(
+                    selected = kind == k,
+                    onClick = {
+                        kind = k
+                        resetResults()
+                        status = ""
+                    },
+                    label = { Text(k.label) },
+                    modifier = Modifier.padding(end = 6.dp),
+                )
+            }
+        }
+        Text(kind.hint, fontSize = 11.sp)
+
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
             Button(
                 onClick = {
                     picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
@@ -139,6 +201,53 @@ fun ImportScreen(settings: AppSettings, onImport: (List<Course>) -> Unit) {
             }
         }
 
+        if (parsedPeriods.isNotEmpty()) {
+            parsedPeriods.forEachIndexed { index, period ->
+                Text(
+                    "第 ${index + 1} 节  " + (period?.let { "${it.startLabel}-${it.endLabel}" } ?: "（没读到，保留原值）"),
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(vertical = 1.dp),
+                )
+            }
+            Button(
+                onClick = {
+                    val merged = settings.periods.toMutableList()
+                    parsedPeriods.forEachIndexed { index, period ->
+                        if (period != null) {
+                            if (index < merged.size) merged[index] = period else merged += period
+                        }
+                    }
+                    onChangeSettings(settings.copy(periods = merged))
+                    status = "作息时间已应用，去设置页可以再改"
+                },
+                modifier = Modifier.padding(top = 8.dp),
+            ) { Text("应用这份作息时间") }
+        }
+
+        calendarResult?.let { result ->
+            Card(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                Column(Modifier.padding(10.dp)) {
+                    Text("从校历里读到的", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text("第一周周一：${result.firstWeekMonday ?: "没读到"}", fontSize = 13.sp)
+                    Text("教学周数：${result.totalWeeks?.toString() ?: "没读到"}", fontSize = 13.sp)
+                    result.hints.forEach { Text("· $it", fontSize = 11.sp) }
+                }
+            }
+            Button(
+                onClick = {
+                    onChangeSettings(
+                        settings.copy(
+                            termStartDate = result.firstWeekMonday ?: settings.termStartDate,
+                            totalWeeks = result.totalWeeks ?: settings.totalWeeks,
+                        )
+                    )
+                    status = "已应用到设置"
+                },
+                enabled = result.firstWeekMonday != null || result.totalWeeks != null,
+                modifier = Modifier.padding(bottom = 8.dp),
+            ) { Text("应用到设置") }
+        }
+
         drafts.forEachIndexed { index, course ->
             Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                 Column(Modifier.padding(10.dp)) {
@@ -160,12 +269,10 @@ fun ImportScreen(settings: AppSettings, onImport: (List<Course>) -> Unit) {
 
         if (drafts.isNotEmpty()) {
             Row(Modifier.padding(top = 8.dp)) {
-                Button(onClick = { onImport(drafts) }) { Text("导入这 ${drafts.size} 门课") }
+                Button(onClick = { onImportCourses(drafts) }) { Text("导入这 ${drafts.size} 门课") }
                 Spacer(Modifier.width(8.dp))
                 OutlinedButton(onClick = {
-                    drafts = emptyList()
-                    raws = emptyList()
-                    warnings = emptyList()
+                    resetResults()
                     status = "已清空识别结果"
                 }) { Text("清空") }
             }
@@ -175,17 +282,17 @@ fun ImportScreen(settings: AppSettings, onImport: (List<Course>) -> Unit) {
             OutlinedButton(
                 onClick = {
                     val clipboard = context.getSystemService(ClipboardManager::class.java)
-                    clipboard?.setPrimaryClip(ClipData.newPlainText("课表识别原文", rawDump))
-                    Toast.makeText(context, "识别原文已复制，可以粘贴到聊天里", Toast.LENGTH_SHORT).show()
+                    clipboard?.setPrimaryClip(ClipData.newPlainText("识别原文", rawDump))
+                    Toast.makeText(context, "识别原文已复制", Toast.LENGTH_SHORT).show()
                 },
                 modifier = Modifier.padding(top = 8.dp),
             ) { Text("复制识别原文（识别不准时发给开发者）") }
         }
 
         Text(
-            "识别不准很正常：表格越规整、字越清晰越准。识别完在这里改，或者导入后在课表页点格子改。",
+            "课表识别不准很正常：表格越规整越准。识别完在这里改，导入后也能在课表页点格子改。",
             fontSize = 11.sp,
-            modifier = Modifier.padding(top = 12.dp),
+            modifier = Modifier.padding(top = 12.dp, bottom = 16.dp),
         )
     }
 

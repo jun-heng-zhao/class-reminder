@@ -22,6 +22,12 @@ object Codec {
         settings.periods.forEach { p ->
             appendLine(listOf("P", p.startMinute.toString(), p.endMinute.toString()).joinToString("\t"))
         }
+        settings.overrides.forEach { o ->
+            appendLine(
+                listOf("D", esc(o.date), o.kind.name, o.swapToDayOfWeek.toString(), esc(o.note))
+                    .joinToString("\t")
+            )
+        }
         courses.forEach { c ->
             appendLine(
                 listOf(
@@ -39,6 +45,7 @@ object Codec {
     fun decode(text: String): Pair<List<Course>, AppSettings> {
         var settings = AppSettings()
         val periods = mutableListOf<PeriodTime>()
+        val overrides = mutableListOf<DayOverride>()
         val courses = mutableListOf<Course>()
         text.lineSequence().forEach { raw ->
             val line = raw.trimEnd('\r', '\n')
@@ -57,6 +64,17 @@ object Codec {
                     val s = f.getOrNull(1)?.toIntOrNull() ?: return@forEach
                     val e = f.getOrNull(2)?.toIntOrNull() ?: return@forEach
                     periods += PeriodTime(s, e)
+                }
+                "D" -> {
+                    val date = unesc(f.getOrNull(1).orEmpty())
+                    if (date.isBlank()) return@forEach
+                    overrides += DayOverride(
+                        date = date,
+                        kind = runCatching { DayKind.valueOf(f.getOrNull(2).orEmpty()) }
+                            .getOrDefault(DayKind.NORMAL),
+                        swapToDayOfWeek = (f.getOrNull(3)?.toIntOrNull() ?: 1).coerceIn(1, 7),
+                        note = unesc(f.getOrNull(4).orEmpty()),
+                    )
                 }
                 "C" -> {
                     val id = unesc(f.getOrNull(1).orEmpty())
@@ -81,6 +99,7 @@ object Codec {
             }
         }
         if (periods.isNotEmpty()) settings = settings.copy(periods = periods)
+        if (overrides.isNotEmpty()) settings = settings.copy(overrides = overrides)
         return courses to settings
     }
 

@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -51,7 +52,7 @@ fun AppRoot() {
     LaunchedEffect(Unit) {
         Notifier.ensureChannels(context)
         ReminderScheduler.reschedule(context)
-        if (store.settings.termStartDate.isBlank()) tab = 2 // 没设第一周就直接去设置页
+        if (store.settings.termStartDate.isBlank()) tab = 3 // 没设第一周就直接去设置页
     }
 
     val termStart = WeekCalc.parseDate(settings.termStartDate)
@@ -76,6 +77,12 @@ fun AppRoot() {
                 NavigationBarItem(
                     selected = tab == 2,
                     onClick = { tab = 2 },
+                    icon = { Icon(Icons.Filled.EditCalendar, contentDescription = null) },
+                    label = { Text("日历") },
+                )
+                NavigationBarItem(
+                    selected = tab == 3,
+                    onClick = { tab = 3 },
                     icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
                     label = { Text("设置") },
                 )
@@ -97,11 +104,18 @@ fun AppRoot() {
 
                 1 -> ImportScreen(
                     settings = settings,
-                    onImport = { parsed ->
+                    onImportCourses = { parsed ->
                         val added = parsed.map { it.copy(id = UUID.randomUUID().toString()) }
                         persist(courses + added)
                         tab = 0
                     },
+                    onChangeSettings = { persist(newSettings = it) },
+                )
+
+                2 -> CalendarScreen(
+                    settings = settings,
+                    courses = courses,
+                    onChange = { persist(newSettings = it) },
                 )
 
                 else -> SettingsScreen(

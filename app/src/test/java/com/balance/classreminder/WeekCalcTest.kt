@@ -2,6 +2,8 @@ package com.balance.classreminder
 
 import com.balance.classreminder.data.AppSettings
 import com.balance.classreminder.data.Course
+import com.balance.classreminder.data.DayKind
+import com.balance.classreminder.data.DayOverride
 import com.balance.classreminder.data.WeekParity
 import com.balance.classreminder.domain.WeekCalc
 import org.junit.Assert.assertEquals
@@ -72,7 +74,7 @@ class WeekCalcTest {
     @Test
     fun occurrenceOn_mapsPeriodsToClockTime() {
         val settings = AppSettings(termStartDate = term.toString())
-        val occ = WeekCalc.occurrenceOn(course(startPeriod = 1, endPeriod = 2), term, settings.periods, term)
+        val occ = WeekCalc.occurrenceOn(course(startPeriod = 1, endPeriod = 2), term, settings, term)
         assertNotNull(occ)
         assertEquals(LocalDateTime.of(term, LocalTime.of(8, 0)), occ!!.start)
         assertEquals(LocalDateTime.of(term, LocalTime.of(9, 40)), occ.end)
@@ -83,7 +85,7 @@ class WeekCalcTest {
     fun occurrenceOn_returnsNullOnWrongWeekday() {
         val settings = AppSettings(termStartDate = term.toString())
         // 课程在周二，查周一
-        val occ = WeekCalc.occurrenceOn(course(dayOfWeek = 2), term, settings.periods, term)
+        val occ = WeekCalc.occurrenceOn(course(dayOfWeek = 2), term, settings, term)
         assertEquals(null, occ)
     }
 
@@ -140,6 +142,42 @@ class WeekCalcTest {
         assertEquals(1, list.size)
         assertEquals(15, list[0].week)
         assertEquals(week15Monday, list[0].start.toLocalDate())
+    }
+
+    @Test
+    fun holidayOverride_removesClassesThatDay() {
+        val saturday = LocalDate.of(2026, 9, 12)
+        val settings = AppSettings(
+            termStartDate = term.toString(),
+            overrides = listOf(DayOverride(saturday.toString(), DayKind.HOLIDAY)),
+        )
+        // 周六本来就没课，换成一门"周六的课"再验证
+        val satCourse = course(dayOfWeek = 6)
+        assertTrue(WeekCalc.courseOnDate(satCourse, term, AppSettings(termStartDate = term.toString()), saturday))
+        assertFalse(WeekCalc.courseOnDate(satCourse, term, settings, saturday))
+        assertEquals(null, WeekCalc.effectiveDayOfWeek(settings, saturday))
+    }
+
+    @Test
+    fun swapOverride_runsAnotherWeekdaysClasses() {
+        val saturday = LocalDate.of(2026, 9, 12)   // 周六
+        val settings = AppSettings(
+            termStartDate = term.toString(),
+            overrides = listOf(DayOverride(saturday.toString(), DayKind.SWAP, swapToDayOfWeek = 3)),
+        )
+        val wednesdayCourse = course(dayOfWeek = 3)
+        assertTrue(WeekCalc.courseOnDate(wednesdayCourse, term, settings, saturday))
+        // 周六本来该上的课这天反而不上
+        assertFalse(WeekCalc.courseOnDate(course(dayOfWeek = 6), term, settings, saturday))
+
+        val list = WeekCalc.upcoming(
+            listOf(wednesdayCourse),
+            settings,
+            LocalDateTime.of(saturday, LocalTime.of(7, 0)),
+            horizonDays = 0,
+        )
+        assertEquals(1, list.size)
+        assertEquals(saturday, list[0].start.toLocalDate())
     }
 
     @Test
