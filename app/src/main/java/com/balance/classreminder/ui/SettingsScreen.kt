@@ -114,8 +114,8 @@ fun SettingsScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                Text("强提醒（响铃 + 震动）", fontSize = 14.sp)
-                Text("打开后课前提醒会用系统闹钟铃声，不容易错过", fontSize = 11.sp)
+                Text("响铃提醒（默认关，只需要通知就别开）", fontSize = 14.sp)
+                Text("打开后会额外放系统闹钟铃声；只想要通知就不用打开", fontSize = 11.sp)
             }
             Switch(
                 checked = settings.strongReminder,
