@@ -1,6 +1,7 @@
 package com.balance.classreminder.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import android.app.AlarmManager
@@ -137,10 +138,14 @@ fun ScheduleScreen(
         // 课表网格
         for (period in periods.indices) {
             val periodNo = period + 1
-            Row(Modifier.fillMaxWidth().height(58.dp)) {
-                Column(Modifier.width(26.dp).fillMaxHeight(), verticalArrangement = Arrangement.Center) {
+            Row(Modifier.fillMaxWidth().height(64.dp)) {
+                Column(
+                    Modifier.width(42.dp).fillMaxHeight().padding(start = 1.dp),
+                    verticalArrangement = Arrangement.Center,
+                ) {
                     Text("$periodNo", fontSize = 10.sp, fontWeight = FontWeight.Medium)
-                    Text(periods[period].startLabel, fontSize = 8.sp, color = Color.Gray)
+                    Text(periods[period].startLabel, fontSize = 8.sp, color = Color(0xFF546E7A), lineHeight = 9.sp)
+                    Text(periods[period].endLabel, fontSize = 8.sp, color = Color(0xFF90A4AE), lineHeight = 9.sp)
                 }
                 for (day in 1..7) {
                     val course = courses.firstOrNull {
@@ -157,23 +162,28 @@ fun ScheduleScreen(
                                 if (course != null) PALETTE[course.colorIndex.mod(PALETTE.size)]
                                 else Color.Transparent
                             )
+                            // 裁剪：课程名再长也只能待在自己格子里，不许压到邻格
+                            .clipToBounds()
                             .clickable {
                                 if (course != null) onEdit(course) else onAddAt(day, periodNo)
                             }
                     ) {
                         if (course != null && periodNo == course.startPeriod) {
-                            Column(Modifier.padding(1.dp)) {
+                            Column(Modifier.padding(horizontal = 2.dp, vertical = 2.dp)) {
                                 Text(
                                     text = course.name,
-                                    fontSize = 10.sp,
-                                    maxLines = 3,
+                                    fontSize = 9.sp,
+                                    lineHeight = 11.sp,
+                                    maxLines = if (course.endPeriod > course.startPeriod) 3 else 2,
                                     overflow = TextOverflow.Ellipsis,
                                     fontWeight = FontWeight.Medium,
                                 )
-                                if (course.location.isNotBlank()) {
+                                // 地点只在连堂课（格子高）时显示，单节课放不下就别硬塞
+                                if (course.location.isNotBlank() && course.endPeriod > course.startPeriod) {
                                     Text(
                                         text = "@" + course.location,
-                                        fontSize = 8.sp,
+                                        fontSize = 7.sp,
+                                        lineHeight = 9.sp,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                         color = Color(0xFF37474F),
@@ -202,8 +212,10 @@ fun ScheduleScreen(
                     modifier = Modifier.padding(top = 10.dp, bottom = 2.dp),
                 )
                 dayCourses.forEach { course ->
-                    val start = periods.getOrNull(course.startPeriod - 1)?.startLabel.orEmpty()
-                    val end = periods.getOrNull(course.endPeriod - 1)?.endLabel.orEmpty()
+                    // 每一节自己的上下课时间分别列出来，中间的课间不算进课程时间
+                    val slots = (course.startPeriod..course.endPeriod).mapNotNull { p ->
+                        periods.getOrNull(p - 1)?.let { "${it.startLabel}-${it.endLabel}" }
+                    }
                     Card(
                         Modifier.fillMaxWidth().padding(vertical = 3.dp).clickable { onEdit(course) }
                     ) {
@@ -218,7 +230,7 @@ fun ScheduleScreen(
                             Column(Modifier.weight(1f)) {
                                 Text(course.name, fontWeight = FontWeight.Medium, fontSize = 15.sp)
                                 Text(
-                                    "$start-$end · 第 ${course.startPeriod}" +
+                                    slots.joinToString("  ") + " · 第 ${course.startPeriod}" +
                                         (if (course.endPeriod != course.startPeriod) "-${course.endPeriod}" else "") +
                                         " 节",
                                     fontSize = 12.sp,

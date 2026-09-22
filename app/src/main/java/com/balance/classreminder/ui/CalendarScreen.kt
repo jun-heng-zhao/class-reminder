@@ -227,10 +227,10 @@ fun CalendarScreen(
                                 color = Color(0xFF7A3E00),
                             )
                             classes.isNotEmpty() -> Text(
-                                "${classes.size} 节 · " + classes.first().start.toLocalTime()
-                                    .let { "%02d:%02d".format(it.hour, it.minute) },
+                                "${classes.size} 节",
                                 fontSize = 9.sp,
                                 color = Color(0xFF0D47A1),
+                                maxLines = 1,
                             )
                             vacation -> Text(vacationLabel(date), fontSize = 9.sp, color = Color(0xFF37474F))
                         }
