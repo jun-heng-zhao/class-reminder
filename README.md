@@ -25,6 +25,12 @@
 | :---: | :---: | :---: |
 | ![表格](docs/screenshots/01-表格.png) | ![导入](docs/screenshots/02-导入识别.png) | ![日历](docs/screenshots/03-日历.png) |
 
+## 下载安装
+
+**[⬇️ 下载最新 APK](https://github.com/jun-heng-zhao/class-reminder/releases/latest)**（`app-release.apk`，minSdk 26 / Android 8.0+）
+
+装完首次进入按提示给通知权限；小米 / HyperOS 建议再到系统设置里允许**自启动**、省电策略改**无限制**，否则提醒可能不派发。
+
 ## 从源码构建
 
 ```bash
