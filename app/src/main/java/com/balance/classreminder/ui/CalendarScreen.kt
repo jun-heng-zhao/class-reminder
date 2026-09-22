@@ -80,6 +80,17 @@ fun CalendarScreen(
     var pendingFromPhone by remember { mutableStateOf<List<DeviceCalendar.HolidayEvent>>(emptyList()) }
     val today = LocalDate.now()
 
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            val termStart = WeekCalc.parseDate(settings.termStartDate) ?: today
+            applyHolidays(DeviceCalendar.query(context, termStart.minusDays(30), termStart.plusDays(210)))
+        } else {
+            importMessage = "没给日历权限，读不到系统日历里的节假日；也可以手动标。"
+        }
+    }
+
     // 走系统日历接口：进页面就查一次，有新节假日就提示一键应用
     LaunchedEffect(settings.termStartDate) {
         val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) ==
@@ -109,17 +120,6 @@ fun CalendarScreen(
                 swapToWeek = if (event.isWorkday) -1
                 else WeekCalc.weekOf(WeekCalc.parseDate(settings.termStartDate), event.date),
             )
-        }
-    }
-
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
-            val termStart = WeekCalc.parseDate(settings.termStartDate) ?: today
-            applyHolidays(DeviceCalendar.query(context, termStart.minusDays(30), termStart.plusDays(210)))
-        } else {
-            importMessage = "没给日历权限，读不到系统日历里的节假日；也可以手动标。"
         }
     }
 
