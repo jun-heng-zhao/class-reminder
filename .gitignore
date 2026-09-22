@@ -1,0 +1,17 @@
+# Gradle
+.gradle/
+build/
+app/build/
+.kotlin/
+
+# 本地环境
+local.properties
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+
+# 系统
+.DS_Store
+*.log
