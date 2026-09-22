@@ -3,6 +3,8 @@ package com.balance.classreminder.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import android.app.AlarmManager
+import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -24,11 +27,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.NotificationManagerCompat
 import com.balance.classreminder.data.AppSettings
 import com.balance.classreminder.data.Course
 import com.balance.classreminder.data.DAY_NAMES
@@ -51,8 +56,21 @@ fun ScheduleScreen(
     onEdit: (Course) -> Unit,
 ) {
     val periods = settings.periods
+    val context = LocalContext.current
+    val notificationsOff = !NotificationManagerCompat.from(context).areNotificationsEnabled()
+    val exactAlarmOff = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+        !(context.getSystemService(AlarmManager::class.java)?.canScheduleExactAlarms() ?: false)
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(8.dp)) {
+        if (notificationsOff || exactAlarmOff) {
+            Card(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
+                Column(Modifier.padding(10.dp)) {
+                    Text("提醒现在收不到", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    if (notificationsOff) Text("· 通知权限没开，去「设置」页打开", fontSize = 12.sp)
+                    if (exactAlarmOff) Text("· 精确闹钟没允许，去「设置」页打开", fontSize = 12.sp)
+                }
+            }
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = { onWeekOffset(-1) }) { Text("◀ 上一周") }
             Spacer(Modifier.weight(1f))
@@ -153,5 +171,42 @@ fun ScheduleScreen(
             modifier = Modifier.padding(top = 8.dp),
         )
         TextButton(onClick = { onAddAt(1, 1) }) { Text("＋ 新增一节其他时间的课") }
+
+        if (courses.isNotEmpty()) {
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            Text(
+                "全部课程（${courses.size}）· 同一格有多门课时在这里改",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+            )
+            courses
+                .sortedWith(compareBy({ it.dayOfWeek }, { it.startPeriod }, { it.name }))
+                .forEach { course ->
+                    Card(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 3.dp)
+                            .clickable { onEdit(course) }
+                    ) {
+                        Row(
+                            Modifier.padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(
+                                Modifier
+                                    .width(6.dp)
+                                    .height(32.dp)
+                                    .background(PALETTE[course.colorIndex.mod(PALETTE.size)])
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(course.name, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                                Text(courseSubtitle(course), fontSize = 11.sp)
+                            }
+                            Text("修改", fontSize = 12.sp)
+                        }
+                    }
+                }
+        }
     }
 }

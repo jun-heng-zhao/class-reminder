@@ -3,6 +3,9 @@ package com.balance.classreminder.ui
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.widget.Toast
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -34,7 +37,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.balance.classreminder.data.AppSettings
 import com.balance.classreminder.data.Course
-import com.balance.classreminder.data.dayName
 import com.balance.classreminder.ocr.GridParser
 import com.balance.classreminder.ocr.ParsedCourse
 import com.balance.classreminder.ocr.TimetableOcr
@@ -54,6 +56,7 @@ fun ImportScreen(settings: AppSettings, onImport: (List<Course>) -> Unit) {
     var drafts by remember { mutableStateOf<List<Course>>(emptyList()) }
     var raws by remember { mutableStateOf<List<String>>(emptyList()) }
     var warnings by remember { mutableStateOf<List<String>>(emptyList()) }
+    var rawDump by remember { mutableStateOf("") }
     var editingIndex by remember { mutableStateOf<Int?>(null) }
 
     val recognize: (android.net.Uri) -> Unit = { uri ->
@@ -62,6 +65,9 @@ fun ImportScreen(settings: AppSettings, onImport: (List<Course>) -> Unit) {
         scope.launch {
             runCatching {
                 val boxes = TimetableOcr.recognize(context, uri)
+                rawDump = boxes
+                    .sortedWith(compareBy({ it.top }, { it.left }))
+                    .joinToString("\n") { "x=${it.centerX} y=${it.centerY} | ${it.text}" }
                 withContext(Dispatchers.Default) { GridParser.parse(boxes, settings.totalWeeks) }
             }.onSuccess { result ->
                 drafts = result.courses.map { it.toCourse() }
@@ -134,21 +140,7 @@ fun ImportScreen(settings: AppSettings, onImport: (List<Course>) -> Unit) {
             Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                 Column(Modifier.padding(10.dp)) {
                     Text(course.name, fontWeight = FontWeight.Bold)
-                    Text(
-                        buildString {
-                            append(dayName(course.dayOfWeek))
-                            append(" 第 ").append(course.startPeriod)
-                            if (course.endPeriod != course.startPeriod) append("-").append(course.endPeriod)
-                            append(" 节 · ").append(course.startWeek).append("-").append(course.endWeek).append(" 周")
-                            when (course.parity.name) {
-                                "ODD" -> append("（单周）")
-                                "EVEN" -> append("（双周）")
-                            }
-                            if (course.location.isNotBlank()) append(" · ").append(course.location)
-                            if (course.teacher.isNotBlank()) append(" · ").append(course.teacher)
-                        },
-                        fontSize = 13.sp,
-                    )
+                    Text(courseSubtitle(course), fontSize = 13.sp)
                     if (raws.getOrNull(index)?.isNotBlank() == true) {
                         Text("原图识别：" + raws[index].replace("\n", " / "), fontSize = 10.sp)
                     }
@@ -174,6 +166,17 @@ fun ImportScreen(settings: AppSettings, onImport: (List<Course>) -> Unit) {
                     status = "已清空识别结果"
                 }) { Text("清空") }
             }
+        }
+
+        if (rawDump.isNotBlank()) {
+            OutlinedButton(
+                onClick = {
+                    val clipboard = context.getSystemService(ClipboardManager::class.java)
+                    clipboard?.setPrimaryClip(ClipData.newPlainText("课表识别原文", rawDump))
+                    Toast.makeText(context, "识别原文已复制，可以粘贴到聊天里", Toast.LENGTH_SHORT).show()
+                },
+                modifier = Modifier.padding(top = 8.dp),
+            ) { Text("复制识别原文（识别不准时发给开发者）") }
         }
 
         Text(

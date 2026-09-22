@@ -20,9 +20,23 @@ object GridParser {
     private val PERIOD_TOKEN = Regex("^(?:第)?\\s*(\\d{1,2})\\s*(?:节|大节)?$")
     private val WEEK_RANGE = Regex("(\\d{1,2})\\s*[-~—－至]\\s*(\\d{1,2})\\s*周?")
     private val SINGLE_WEEK = Regex("(\\d{1,2})\\s*周")
-    private val ODD_WEEK = Regex("单周")
-    private val EVEN_WEEK = Regex("双周")
-    private val LOCATION_HINT = Regex("[楼教馆场室区栋]|机房|实验|报告厅|体育馆|操场|中心|学院|[A-Za-z]\\s?\\d{2,4}")
+    /** 单双周的几种写法：单周 / (单) / 单数周。 */
+    private val PARITY_MARKERS = listOf(
+        Regex("单数周") to WeekParity.ODD,
+        Regex("双数周") to WeekParity.EVEN,
+        Regex("单周") to WeekParity.ODD,
+        Regex("双周") to WeekParity.EVEN,
+        Regex("[（(]\\s*单\\s*[)）]") to WeekParity.ODD,
+        Regex("[（(]\\s*双\\s*[)）]") to WeekParity.EVEN,
+    )
+    /**
+     * 教室长这样：实验楼C102 / 教三201 / 外语楼305 / A402。
+     * 不能只看"楼室馆场"这些字——课程名里也有"实验"（大学物理实验），只看关键字会把课名当地点。
+     */
+    private val ROOM_LIKE = Regex("^[\\u4e00-\\u9fa5A-Za-z]{1,6}[A-Za-z]?\\s?\\d{1,4}(?:[-—]\\d{1,4})?$")
+    /** 没有门牌号也一眼是地点。 */
+    private val PLACE_EXACT = setOf("操场", "体育馆", "图书馆", "食堂", "报告厅", "礼堂", "机房", "实验楼", "教学楼", "运动场")
+    private val PLACE_WORD = Regex("[楼室馆场区栋]|中心|机房")
     private val NOISE = Regex("^(课程|时间|教室|课表|上午|下午|晚上|节次|备注)$")
 
     private data class Row(val indices: List<Int>, val centerY: Int)
@@ -66,6 +80,8 @@ object GridParser {
             } ?: continue
             val period = PERIOD_TOKEN.find(items[label].text.trim())?.groupValues?.get(1)?.toIntOrNull()
                 ?: continue
+            // 节次不可能超过 30，超了说明认错了（比如把"23:00"之类当成节次）
+            if (period !in 1..30) continue
             periodRows += period to row.centerY
             periodLabelIndices += label
         }
@@ -81,7 +97,10 @@ object GridParser {
         val buckets = linkedMapOf<Pair<Int, Int>, MutableList<OcrBox>>()
         for ((i, box) in items.withIndex()) {
             if (i in headerIndices || i in periodLabelIndices) continue
+            // 第一列（"第1节""08:00"这些）整列都是标签，不可能是课程内容，一律不进网格
+            if (box.centerX < leftEdge - 10) continue
             if (dayNumberOf(box.text) != null && box.text.trim().length <= 4) continue // 表头漏网
+            if (isNoiseText(box.text)) continue
             val day = nearest(dayColumns.map { it.second }, box.centerX)?.let { dayColumns[it].first } ?: continue
             val period = nearest(periodRows.map { it.second }, box.centerY)?.let { periodRows[it].first } ?: continue
             buckets.getOrPut(day to period) { mutableListOf() } += box
@@ -152,13 +171,11 @@ object GridParser {
         var endWeek = totalWeeks
         var work = raw
 
-        if (ODD_WEEK.containsMatchIn(work)) {
-            parity = WeekParity.ODD
-            work = work.replace(ODD_WEEK, "\n")
-        }
-        if (EVEN_WEEK.containsMatchIn(work)) {
-            parity = WeekParity.EVEN
-            work = work.replace(EVEN_WEEK, "\n")
+        for ((pattern, value) in PARITY_MARKERS) {
+            if (pattern.containsMatchIn(work)) {
+                parity = value
+                work = work.replace(pattern, "\n")
+            }
         }
 
         WEEK_RANGE.find(work)?.let { m ->
@@ -174,22 +191,26 @@ object GridParser {
         }
         if (endWeek < startWeek) endWeek = startWeek
 
-        var name = ""
-        var location = ""
-        var teacher = ""
-        val leftovers = mutableListOf<String>()
+        val lines = mutableListOf<String>()
         work.split('\n', '，', ',', '；', ';', ' ', '\u3000').forEach { piece ->
             val line = piece.trim().trim('(', ')', '（', '）', '[', ']')
             if (line.isEmpty() || NOISE.matches(line)) return@forEach
             if (dayNumberOf(line) != null && line.length <= 4) return@forEach
-            when {
-                location.isEmpty() && LOCATION_HINT.containsMatchIn(line) -> location = line
-                name.isEmpty() -> name = line
-                teacher.isEmpty() && line.length <= 6 -> teacher = line
-                else -> leftovers += line
-            }
+            lines += line
         }
-        if (location.isEmpty() && leftovers.isNotEmpty()) location = leftovers.joinToString(" ")
+
+        // 地点从所有行里挑"最像教室"的那一行，而不是碰到就认定：
+        // 课程名里也常有"实验/教育"这种字，先到先得会张冠李戴（大学物理实验 ↔ 实验楼C102）。
+        val location = lines
+            .filter { roomScore(it) > 0 }
+            .maxWithOrNull(
+                compareBy({ roomScore(it) }, { line -> line.count { it.isDigit() } }, { -it.length })
+            )
+            .orEmpty()
+        val rest = lines.filter { it != location }
+        var name = rest.firstOrNull().orEmpty()
+        val teacher = rest.drop(1).firstOrNull { it.length <= 6 && it.none { ch -> ch.isDigit() } }.orEmpty()
+        // 万一只剩地点没有课名（整格只有房间号），拿地点兜底，避免整条被丢掉
         if (name.isEmpty() && location.isNotEmpty()) name = location
 
         val confidence = when {
@@ -206,6 +227,26 @@ object GridParser {
             parity = parity,
             confidence = confidence,
         )
+    }
+
+    /** 时间戳、纯符号这些不是课名，混进来只会污染核对列表。 */
+    private fun isNoiseText(text: String): Boolean {
+        val t = text.trim()
+        if (t.isEmpty()) return true
+        if (Regex("^\\d{1,2}[:：]\\d{2}(\\s*[-~—]\\s*\\d{1,2}[:：]\\d{2})?$").matches(t)) return true
+        if (t.none { it.isLetterOrDigit() }) return true
+        if (t.length == 1) return true
+        return false
+    }
+
+    /**
+     * 这一行有多像教室：带"楼/室/馆/场"又带门牌号最像（3），纯地名次之（2），
+     * 像"教三201""A402"这种没有楼字的房间号再次之（1）。
+     */
+    private fun roomScore(line: String): Int {
+        if (PLACE_EXACT.contains(line)) return 2
+        if (!ROOM_LIKE.matches(line)) return 0
+        return if (PLACE_WORD.containsMatchIn(line)) 3 else 1
     }
 
     private fun mergeConsecutive(list: List<ParsedCourse>): List<ParsedCourse> {
