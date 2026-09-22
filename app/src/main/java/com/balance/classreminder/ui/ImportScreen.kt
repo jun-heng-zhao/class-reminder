@@ -286,7 +286,7 @@ fun ImportScreen(
                     Toast.makeText(context, "识别原文已复制", Toast.LENGTH_SHORT).show()
                 },
                 modifier = Modifier.padding(top = 8.dp),
-            ) { Text("复制识别原文（识别不准时发给开发者）") }
+            ) { Text("复制识别原文（想让我帮你调识别时用）") }
         }
 
         Text(

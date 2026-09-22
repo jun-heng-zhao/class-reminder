@@ -57,6 +57,25 @@ class PeriodAndCalendarParserTest {
     }
 
     @Test
+    fun builtInHolidays_coverNationalDayAndMakeupDays() {
+        val entries = com.balance.classreminder.data.BuiltInHolidays.entriesBetween(
+            java.time.LocalDate.of(2026, 9, 1),
+            java.time.LocalDate.of(2026, 11, 30),
+        )
+        fun has(date: String, kind: com.balance.classreminder.data.DayKind) =
+            entries.any { it.date == date && it.kind == kind }
+
+        assertTrue(has("2026-09-25", com.balance.classreminder.data.DayKind.HOLIDAY))  // 中秋
+        assertTrue(has("2026-10-01", com.balance.classreminder.data.DayKind.HOLIDAY))  // 国庆首日
+        assertTrue(has("2026-10-07", com.balance.classreminder.data.DayKind.HOLIDAY))  // 国庆末日
+        assertTrue(has("2026-09-20", com.balance.classreminder.data.DayKind.SWAP))     // 周日上班
+        assertTrue(has("2026-10-10", com.balance.classreminder.data.DayKind.SWAP))     // 周六上班
+        // 10 月 8 日已经收假，不该被当成假期
+        assertTrue(entries.none { it.date == "2026-10-08" })
+        assertEquals(2, entries.first { it.date == "2026-09-20" }.swapToDayOfWeek)
+    }
+
+    @Test
     fun calendarParser_readsFirstWeekAndTotalWeeks() {
         val boxes = listOf(
             box("2026-2027学年秋季学期校历", 600, 60, w = 400),

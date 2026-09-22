@@ -73,6 +73,8 @@ data class DayOverride(
     val kind: DayKind,
     val swapToDayOfWeek: Int = 1,     // kind=SWAP：这天按星期几的课表上
     val note: String = "",
+    /** kind=SWAP：按"第几周"的课表上；<=0 表示就用这天所在的周次。 */
+    val swapToWeek: Int = -1,
 )
 
 data class AppSettings(

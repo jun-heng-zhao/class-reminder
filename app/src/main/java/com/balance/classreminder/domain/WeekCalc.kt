@@ -104,7 +104,11 @@ object WeekCalc {
     fun courseOnDate(course: Course, termStartMonday: LocalDate, settings: AppSettings, date: LocalDate): Boolean {
         val effectiveDay = effectiveDayOfWeek(settings, date) ?: return false
         if (course.dayOfWeek != effectiveDay) return false
-        return weekMatches(course, weekOf(termStartMonday, date))
+        val override = overrideOf(settings, date)
+        // 调休可以指定"按第几周的课表"；没指定就用这天所在的周次
+        val week = override?.takeIf { it.kind == DayKind.SWAP && it.swapToWeek > 0 }?.swapToWeek
+            ?: weekOf(termStartMonday, date)
+        return weekMatches(course, week)
     }
 
     /** 把节次换算成具体时刻；节次超出作息表返回 null。 */

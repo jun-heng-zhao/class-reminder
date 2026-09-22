@@ -243,41 +243,5 @@ fun ScheduleScreen(
         )
         TextButton(onClick = { onAddAt(1, 1) }) { Text("＋ 新增一节其他时间的课") }
 
-        if (courses.isNotEmpty()) {
-            HorizontalDivider(Modifier.padding(vertical = 8.dp))
-            Text(
-                "全部课程（${courses.size}）· 同一格有多门课时在这里改",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-            )
-            courses
-                .sortedWith(compareBy({ it.dayOfWeek }, { it.startPeriod }, { it.name }))
-                .forEach { course ->
-                    Card(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 3.dp)
-                            .clickable { onEdit(course) }
-                    ) {
-                        Row(
-                            Modifier.padding(8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Box(
-                                Modifier
-                                    .width(6.dp)
-                                    .height(32.dp)
-                                    .background(PALETTE[course.colorIndex.mod(PALETTE.size)])
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(course.name, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                                Text(courseSubtitle(course), fontSize = 11.sp)
-                            }
-                            Text("修改", fontSize = 12.sp)
-                        }
-                    }
-                }
-        }
     }
 }

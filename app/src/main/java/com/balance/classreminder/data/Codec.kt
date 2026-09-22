@@ -24,8 +24,10 @@ object Codec {
         }
         settings.overrides.forEach { o ->
             appendLine(
-                listOf("D", esc(o.date), o.kind.name, o.swapToDayOfWeek.toString(), esc(o.note))
-                    .joinToString("\t")
+                listOf(
+                    "D", esc(o.date), o.kind.name, o.swapToDayOfWeek.toString(), esc(o.note),
+                    o.swapToWeek.toString(),
+                ).joinToString("\t")
             )
         }
         courses.forEach { c ->
@@ -74,6 +76,7 @@ object Codec {
                             .getOrDefault(DayKind.NORMAL),
                         swapToDayOfWeek = (f.getOrNull(3)?.toIntOrNull() ?: 1).coerceIn(1, 7),
                         note = unesc(f.getOrNull(4).orEmpty()),
+                        swapToWeek = f.getOrNull(5)?.toIntOrNull() ?: -1,
                     )
                 }
                 "C" -> {
