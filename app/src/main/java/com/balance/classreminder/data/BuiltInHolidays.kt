@@ -15,7 +15,7 @@ object BuiltInHolidays {
         val date: String,
         val kind: DayKind,
         val note: String,
-        val swapToDayOfWeek: Int = 1,
+        val swapToDayOfWeek: Int = 0,
     )
 
     private val RANGES = listOf(
@@ -30,12 +30,12 @@ object BuiltInHolidays {
 
     /** 调休上班日：日期、按星期几上课、说明。 */
     private val WORKDAYS = listOf(
-        Triple("2026-01-04", 5, "元旦调休（周日上班）"),
-        Triple("2026-02-14", 4, "春节调休（周六上班）"),
-        Triple("2026-02-28", 4, "春节调休（周六上班）"),
-        Triple("2026-05-09", 1, "劳动节调休（周六上班）"),
-        Triple("2026-09-20", 2, "国庆调休（周日上班，补 10 月 6 日）"),
-        Triple("2026-10-10", 3, "国庆调休（周六上班，补 10 月 7 日）"),
+        "2026-01-04" to "元旦调休（周日上班）",
+        "2026-02-14" to "春节调休（周六上班）",
+        "2026-02-28" to "春节调休（周六上班）",
+        "2026-05-09" to "劳动节调休（周六上班）",
+        "2026-09-20" to "国庆调休（周日上班）",
+        "2026-10-10" to "国庆调休（周六上班）",
     )
 
     /** 取某段日期里覆盖到的放假/调休安排。 */
@@ -52,10 +52,11 @@ object BuiltInHolidays {
                 day = day.plusDays(1)
             }
         }
-        WORKDAYS.forEach { (dateText, swapTo, note) ->
+        WORKDAYS.forEach { (dateText, note) ->
             val date = runCatching { LocalDate.parse(dateText) }.getOrNull() ?: return@forEach
             if (!date.isBefore(from) && !date.isAfter(to)) {
-                out += Entry(date.toString(), DayKind.SWAP, note, swapTo)
+                // 上哪天的课由学校定，也不一定和国务院通知一一对应，先留空等用户安排
+                out += Entry(date.toString(), DayKind.SWAP, note, swapToDayOfWeek = 0)
             }
         }
         return out.sortedBy { it.date }

@@ -181,6 +181,27 @@ class WeekCalcTest {
     }
 
     @Test
+    fun swapWithoutArrangement_hasNoClassesUntilUserDecides() {
+        val saturday = LocalDate.of(2026, 9, 12)
+        val pending = AppSettings(
+            termStartDate = term.toString(),
+            overrides = listOf(DayOverride(saturday.toString(), DayKind.SWAP, swapToDayOfWeek = 0)),
+        )
+        assertTrue(WeekCalc.needsArrangement(pending, saturday))
+        assertEquals(null, WeekCalc.effectiveDayOfWeek(pending, saturday))
+        // 待安排 = 先不排课、不提醒
+        assertFalse(WeekCalc.courseOnDate(course(dayOfWeek = 6), term, pending, saturday))
+        assertTrue(WeekCalc.upcoming(listOf(course(dayOfWeek = 6)), pending, LocalDateTime.of(saturday, LocalTime.of(7, 0)), 0).isEmpty())
+
+        // 用户安排好之后照常上课
+        val arranged = pending.copy(
+            overrides = listOf(DayOverride(saturday.toString(), DayKind.SWAP, swapToDayOfWeek = 6))
+        )
+        assertFalse(WeekCalc.needsArrangement(arranged, saturday))
+        assertTrue(WeekCalc.courseOnDate(course(dayOfWeek = 6), term, arranged, saturday))
+    }
+
+    @Test
     fun upcoming_respectsReminderOverride() {
         val settings = AppSettings(termStartDate = term.toString(), defaultReminderMinutes = 20)
         val custom = course().copy(reminderMinutes = 5)

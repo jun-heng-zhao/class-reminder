@@ -72,7 +72,8 @@ class PeriodAndCalendarParserTest {
         assertTrue(has("2026-10-10", com.balance.classreminder.data.DayKind.SWAP))     // 周六上班
         // 10 月 8 日已经收假，不该被当成假期
         assertTrue(entries.none { it.date == "2026-10-08" })
-        assertEquals(2, entries.first { it.date == "2026-09-20" }.swapToDayOfWeek)
+        // 调休上班日不猜"上哪天的课"，先留空等用户安排
+        assertEquals(0, entries.first { it.date == "2026-09-20" }.swapToDayOfWeek)
     }
 
     @Test

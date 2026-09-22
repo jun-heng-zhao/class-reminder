@@ -87,13 +87,20 @@ object WeekCalc {
     /** 该周次是否落在课程的周次范围内（含单双周与不规则周次）。 */
     fun weekMatches(course: Course, week: Int): Boolean = weeksOf(course).contains(week)
 
-    /** 这天实际按星期几排课：放假返回 null，调休日返回被调整到的星期几。 */
+    /** 调休日是否还没指定"上哪天的课"。 */
+    fun needsArrangement(settings: AppSettings, date: LocalDate): Boolean {
+        val override = overrideOf(settings, date) ?: return false
+        return override.kind == DayKind.SWAP && override.swapToDayOfWeek !in 1..7
+    }
+
+    /** 这天实际按星期几排课：放假或调休待安排返回 null，调休日返回被调整到的星期几。 */
     fun effectiveDayOfWeek(settings: AppSettings, date: LocalDate): Int? {
         val override = settings.overrides.firstOrNull { it.date == date.toString() } ?: return date.dayOfWeek.value
         return when (override.kind) {
             DayKind.NORMAL -> date.dayOfWeek.value
             DayKind.HOLIDAY -> null
-            DayKind.SWAP -> override.swapToDayOfWeek
+            // 调休上班日还没安排上哪天的课时，先当作不上课，等用户在日历页指定
+            DayKind.SWAP -> override.swapToDayOfWeek.takeIf { it in 1..7 }
         }
     }
 

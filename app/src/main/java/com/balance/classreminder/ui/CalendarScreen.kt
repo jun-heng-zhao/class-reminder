@@ -32,6 +32,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -76,7 +77,22 @@ fun CalendarScreen(
     var editingDate by remember { mutableStateOf<LocalDate?>(null) }
     var holidayRows by remember { mutableStateOf<List<HolidayRow>?>(null) }
     var importMessage by remember { mutableStateOf("") }
+    var pendingFromPhone by remember { mutableStateOf<List<DeviceCalendar.HolidayEvent>>(emptyList()) }
     val today = LocalDate.now()
+
+    // 走系统日历接口：进页面就查一次，有新节假日就提示一键应用
+    LaunchedEffect(settings.termStartDate) {
+        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) ==
+            PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            // 走系统日历接口的前提是拿到日历权限，进页面就问一次
+            permissionLauncher.launch(Manifest.permission.READ_CALENDAR)
+            return@LaunchedEffect
+        }
+        val termStart = WeekCalc.parseDate(settings.termStartDate) ?: return@LaunchedEffect
+        val events = DeviceCalendar.query(context, termStart.minusDays(14), termStart.plusDays(settings.totalWeeks * 7L + 28))
+        pendingFromPhone = events.filter { event -> settings.overrides.none { it.date == event.date.toString() } }
+    }
 
     fun applyHolidays(events: List<DeviceCalendar.HolidayEvent>) {
         if (events.isEmpty()) {
@@ -88,8 +104,10 @@ fun CalendarScreen(
                 event = event,
                 selected = true,
                 kind = if (event.isWorkday) DayKind.SWAP else DayKind.HOLIDAY,
-                swapToDayOfWeek = event.date.dayOfWeek.value,
-                swapToWeek = WeekCalc.weekOf(WeekCalc.parseDate(settings.termStartDate), event.date),
+                // 标「班」的日子先不定上哪天的课，用户之后在日历页安排
+                swapToDayOfWeek = if (event.isWorkday) 0 else event.date.dayOfWeek.value,
+                swapToWeek = if (event.isWorkday) -1
+                else WeekCalc.weekOf(WeekCalc.parseDate(settings.termStartDate), event.date),
             )
         }
     }
@@ -192,6 +210,11 @@ fun CalendarScreen(
                         Text("$dayNumber", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         when {
                             override?.kind == DayKind.HOLIDAY -> Text("放假", fontSize = 10.sp, color = Color(0xFF7F0000))
+                            override?.kind == DayKind.SWAP && override.swapToDayOfWeek !in 1..7 -> Text(
+                                "调休待安排",
+                                fontSize = 9.sp,
+                                color = Color(0xFF7A3E00),
+                            )
                             override?.kind == DayKind.SWAP -> Text(
                                 "上" + dayName(override.swapToDayOfWeek) + "课",
                                 fontSize = 9.sp,
@@ -204,6 +227,23 @@ fun CalendarScreen(
                             )
                         }
                     }
+                }
+            }
+        }
+
+        if (pendingFromPhone.isNotEmpty()) {
+            Card(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                Column(Modifier.padding(10.dp)) {
+                    Text(
+                        "手机日历里有 ${pendingFromPhone.size} 天法定节假日（${pendingFromPhone.first().calendarName}）",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text("放假的日子会标红；标「班」的日子先留空，之后你自己安排上哪天的课。", fontSize = 11.sp)
+                    Button(
+                        onClick = { applyHolidays(pendingFromPhone) },
+                        modifier = Modifier.padding(top = 4.dp),
+                    ) { Text("应用这些节假日") }
                 }
             }
         }
@@ -237,7 +277,7 @@ fun CalendarScreen(
                     }
                     importMessage = ""
                 }
-            }) { Text("用内置 2026 安排") }
+            }) { Text("内置 2026 安排（日历里没节假日时用）") }
         }
         if (importMessage.isNotBlank()) {
             Text(importMessage, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
@@ -261,9 +301,13 @@ fun CalendarScreen(
                                     when (o.kind) {
                                         DayKind.HOLIDAY -> append(" 放假")
                                         DayKind.SWAP -> {
-                                            append(" 上")
-                                            if (o.swapToWeek > 0) append("第").append(o.swapToWeek).append("周")
-                                            append(dayName(o.swapToDayOfWeek)).append("的课")
+                                            if (o.swapToDayOfWeek !in 1..7) {
+                                                append(" 调休（还没安排上哪天的课）")
+                                            } else {
+                                                append(" 上")
+                                                if (o.swapToWeek > 0) append("第").append(o.swapToWeek).append("周")
+                                                append(dayName(o.swapToDayOfWeek)).append("的课")
+                                            }
                                         }
                                         DayKind.NORMAL -> append(" 正常")
                                     }
@@ -384,6 +428,14 @@ private fun HolidayImportDialog(
                         }
                         if (row.kind == DayKind.SWAP) {
                             Row(Modifier.horizontalScroll(rememberScrollState())) {
+                                FilterChip(
+                                    selected = row.swapToDayOfWeek !in 1..7,
+                                    onClick = {
+                                        onChangeRows(rows.toMutableList().also { it[index] = row.copy(swapToDayOfWeek = 0) })
+                                    },
+                                    label = { Text("待安排") },
+                                    modifier = Modifier.padding(end = 4.dp),
+                                )
                                 (1..7).forEach { d ->
                                     FilterChip(
                                         selected = row.swapToDayOfWeek == d,
@@ -456,8 +508,14 @@ private fun DayEditDialog(
                 }
 
                 if (kind == DayKind.SWAP) {
-                    Text("按星期几的课表上", fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+                    Text("按星期几的课表上（调休上班日可以先留空）", fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
                     Row(Modifier.horizontalScroll(rememberScrollState())) {
+                        FilterChip(
+                            selected = swapTo !in 1..7,
+                            onClick = { swapTo = 0 },
+                            label = { Text("待安排") },
+                            modifier = Modifier.padding(end = 4.dp),
+                        )
                         (1..7).forEach { d ->
                             FilterChip(
                                 selected = swapTo == d,

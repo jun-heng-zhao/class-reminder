@@ -71,7 +71,8 @@ enum class DayKind { NORMAL, HOLIDAY, SWAP }
 data class DayOverride(
     val date: String,                 // yyyy-MM-dd
     val kind: DayKind,
-    val swapToDayOfWeek: Int = 1,     // kind=SWAP：这天按星期几的课表上
+    /** kind=SWAP：这天按星期几的课表上。0 表示还没安排（调休上班日先留空，用户之后自己定）。 */
+    val swapToDayOfWeek: Int = 0,
     val note: String = "",
     /** kind=SWAP：按"第几周"的课表上；<=0 表示就用这天所在的周次。 */
     val swapToWeek: Int = -1,
