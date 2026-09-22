@@ -47,11 +47,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.balance.classreminder.data.AppSettings
+import com.balance.classreminder.data.BuiltInHolidays
 import com.balance.classreminder.data.Course
 import com.balance.classreminder.data.DAY_NAMES
 import com.balance.classreminder.data.DayKind
 import com.balance.classreminder.data.DayOverride
-import com.balance.classreminder.data.BuiltInHolidays
 import com.balance.classreminder.data.DeviceCalendar
 import com.balance.classreminder.data.dayName
 import com.balance.classreminder.domain.WeekCalc
@@ -61,10 +61,13 @@ import java.time.YearMonth
 private val COLOR_CLASS = Color(0xFF90CAF9)
 private val COLOR_HOLIDAY = Color(0xFFEF9A9A)
 private val COLOR_SWAP = Color(0xFFFFCC80)
+private val COLOR_VACATION = Color(0xFFCFD8DC)
 
 /**
- * 教学日历：看整月的上课情况，并逐日调整放假/调休。
- * 国家法定调休（周六上周三的课）可以手动标，也可以直接从手机系统日历里导进来。
+ * 教学日历：看整月的上课情况，调整放假/调休/假期。
+ *
+ * 法定节假日走系统日历接口（CalendarContract）读取，读不到再退回内置的 2026 安排；
+ * 学期区间（第一周周一到最后一周末）之外的日期按学生假期显示（寒暑假）。
  */
 @Composable
 fun CalendarScreen(
@@ -73,41 +76,20 @@ fun CalendarScreen(
     onChange: (AppSettings) -> Unit,
 ) {
     val context = LocalContext.current
+    val today = LocalDate.now()
     var month by remember { mutableStateOf(YearMonth.now()) }
     var editingDate by remember { mutableStateOf<LocalDate?>(null) }
     var holidayRows by remember { mutableStateOf<List<HolidayRow>?>(null) }
     var importMessage by remember { mutableStateOf("") }
     var pendingFromPhone by remember { mutableStateOf<List<DeviceCalendar.HolidayEvent>>(emptyList()) }
-    val today = LocalDate.now()
 
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
-            val termStart = WeekCalc.parseDate(settings.termStartDate) ?: today
-            applyHolidays(DeviceCalendar.query(context, termStart.minusDays(30), termStart.plusDays(210)))
-        } else {
-            importMessage = "没给日历权限，读不到系统日历里的节假日；也可以手动标。"
-        }
-    }
-
-    // 走系统日历接口：进页面就查一次，有新节假日就提示一键应用
-    LaunchedEffect(settings.termStartDate) {
-        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) ==
-            PackageManager.PERMISSION_GRANTED
-        if (!granted) {
-            // 走系统日历接口的前提是拿到日历权限，进页面就问一次
-            permissionLauncher.launch(Manifest.permission.READ_CALENDAR)
-            return@LaunchedEffect
-        }
-        val termStart = WeekCalc.parseDate(settings.termStartDate) ?: return@LaunchedEffect
-        val events = DeviceCalendar.query(context, termStart.minusDays(14), termStart.plusDays(settings.totalWeeks * 7L + 28))
-        pendingFromPhone = events.filter { event -> settings.overrides.none { it.date == event.date.toString() } }
-    }
+    val termStartDate = WeekCalc.parseDate(settings.termStartDate)
+    val termEndDate = termStartDate?.plusDays(settings.totalWeeks * 7L - 1)
 
     fun applyHolidays(events: List<DeviceCalendar.HolidayEvent>) {
         if (events.isEmpty()) {
-            importMessage = "手机日历里没找到节假日事件。可以先去系统日历订阅「中国法定节假日」，或者手动标。"
+            importMessage = "手机日历里没有节假日事件。系统日历要先订阅「中国法定节假日」（日历 App → 设置 → 节假日）；" +
+                "不想订阅就用「内置 2026 安排」，或者直接点日期手动标。"
             return
         }
         holidayRows = events.map { event ->
@@ -115,23 +97,45 @@ fun CalendarScreen(
                 event = event,
                 selected = true,
                 kind = if (event.isWorkday) DayKind.SWAP else DayKind.HOLIDAY,
-                // 标「班」的日子先不定上哪天的课，用户之后在日历页安排
+                // 标「班」的日子先不定上哪天的课，之后由用户安排
                 swapToDayOfWeek = if (event.isWorkday) 0 else event.date.dayOfWeek.value,
                 swapToWeek = if (event.isWorkday) -1
-                else WeekCalc.weekOf(WeekCalc.parseDate(settings.termStartDate), event.date),
+                else WeekCalc.weekOf(termStartDate, event.date),
             )
         }
     }
 
-    fun startImport() {
+    fun queryPhoneCalendar() {
+        val from = termStartDate?.minusDays(14) ?: today.minusDays(30)
+        val to = termStartDate?.plusDays(settings.totalWeeks * 7L + 28) ?: today.plusDays(210)
+        applyHolidays(DeviceCalendar.query(context, from, to))
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) queryPhoneCalendar()
+        else importMessage = "没给日历权限，读不到系统日历里的节假日；也可以手动标或用内置安排。"
+    }
+
+    fun ensurePermissionThenQuery() {
         val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) ==
             PackageManager.PERMISSION_GRANTED
-        if (granted) {
-            val termStart = WeekCalc.parseDate(settings.termStartDate) ?: today
-            applyHolidays(DeviceCalendar.query(context, termStart.minusDays(30), termStart.plusDays(210)))
-        } else {
+        if (granted) queryPhoneCalendar() else permissionLauncher.launch(Manifest.permission.READ_CALENDAR)
+    }
+
+    // 走系统日历接口：进页面查一次，有没标过的节假日就提示一键应用
+    LaunchedEffect(settings.termStartDate, settings.totalWeeks) {
+        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) ==
+            PackageManager.PERMISSION_GRANTED
+        if (!granted) {
             permissionLauncher.launch(Manifest.permission.READ_CALENDAR)
+            return@LaunchedEffect
         }
+        val from = termStartDate?.minusDays(14) ?: today.minusDays(30)
+        val to = termStartDate?.plusDays(settings.totalWeeks * 7L + 28) ?: today.plusDays(210)
+        pendingFromPhone = DeviceCalendar.query(context, from, to)
+            .filter { event -> settings.overrides.none { it.date == event.date.toString() } }
     }
 
     fun putOverride(date: LocalDate, kind: DayKind, swapTo: Int, note: String, swapWeek: Int) {
@@ -187,9 +191,14 @@ fun CalendarScreen(
                     val date = month.atDay(dayNumber)
                     val override = WeekCalc.overrideOf(settings, date)
                     val classes = WeekCalc.coursesOn(settings, courses, date)
+                    val inTerm = termStartDate != null && termEndDate != null &&
+                        !date.isBefore(termStartDate) && !date.isAfter(termEndDate)
+                    val vacation = termStartDate != null && !inTerm
+
                     val bg = when {
                         override?.kind == DayKind.HOLIDAY -> COLOR_HOLIDAY
                         override?.kind == DayKind.SWAP -> COLOR_SWAP
+                        vacation -> COLOR_VACATION
                         classes.isNotEmpty() -> COLOR_CLASS
                         else -> Color.White
                     }
@@ -210,21 +219,20 @@ fun CalendarScreen(
                         Text("$dayNumber", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         when {
                             override?.kind == DayKind.HOLIDAY -> Text("放假", fontSize = 10.sp, color = Color(0xFF7F0000))
-                            override?.kind == DayKind.SWAP && override.swapToDayOfWeek !in 1..7 -> Text(
-                                "调休待安排",
-                                fontSize = 9.sp,
-                                color = Color(0xFF7A3E00),
-                            )
+                            override?.kind == DayKind.SWAP && override.swapToDayOfWeek !in 1..7 ->
+                                Text("待安排", fontSize = 9.sp, color = Color(0xFF7A3E00))
                             override?.kind == DayKind.SWAP -> Text(
                                 "上" + dayName(override.swapToDayOfWeek) + "课",
                                 fontSize = 9.sp,
                                 color = Color(0xFF7A3E00),
                             )
                             classes.isNotEmpty() -> Text(
-                                "${classes.size} 节 · ${classes.first().start.toLocalTime().let { "%02d:%02d".format(it.hour, it.minute) }}",
+                                "${classes.size} 节 · " + classes.first().start.toLocalTime()
+                                    .let { "%02d:%02d".format(it.hour, it.minute) },
                                 fontSize = 9.sp,
                                 color = Color(0xFF0D47A1),
                             )
+                            vacation -> Text(vacationLabel(date), fontSize = 9.sp, color = Color(0xFF37474F))
                         }
                     }
                 }
@@ -235,11 +243,11 @@ fun CalendarScreen(
             Card(Modifier.fillMaxWidth().padding(top = 8.dp)) {
                 Column(Modifier.padding(10.dp)) {
                     Text(
-                        "手机日历里有 ${pendingFromPhone.size} 天法定节假日（${pendingFromPhone.first().calendarName}）",
+                        "手机日历里有 ${pendingFromPhone.size} 天节假日（${pendingFromPhone.first().calendarName}）",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                     )
-                    Text("放假的日子会标红；标「班」的日子先留空，之后你自己安排上哪天的课。", fontSize = 11.sp)
+                    Text("放假的日子标红；标「班」的日子先留空，之后你自己安排上哪天的课。", fontSize = 11.sp)
                     Button(
                         onClick = { applyHolidays(pendingFromPhone) },
                         modifier = Modifier.padding(top = 4.dp),
@@ -249,12 +257,10 @@ fun CalendarScreen(
         }
 
         Row(Modifier.padding(top = 8.dp)) {
-            Button(onClick = { startImport() }) { Text("从手机日历导入") }
+            Button(onClick = { ensurePermissionThenQuery() }) { Text("从手机日历导入") }
             Spacer(Modifier.width(8.dp))
             OutlinedButton(onClick = {
-                val entries = BuiltInHolidays.entriesForTerm(
-                    WeekCalc.parseDate(settings.termStartDate), settings.totalWeeks
-                )
+                val entries = BuiltInHolidays.entriesForTerm(termStartDate, settings.totalWeeks)
                 if (entries.isEmpty()) {
                     importMessage = "这个学期范围内没有内置的法定节假日"
                 } else {
@@ -269,22 +275,19 @@ fun CalendarScreen(
                             selected = true,
                             kind = entry.kind,
                             swapToDayOfWeek = entry.swapToDayOfWeek,
-                            swapToWeek = WeekCalc.weekOf(
-                                WeekCalc.parseDate(settings.termStartDate),
-                                LocalDate.parse(entry.date),
-                            ),
+                            swapToWeek = WeekCalc.weekOf(termStartDate, LocalDate.parse(entry.date)),
                         )
                     }
                     importMessage = ""
                 }
-            }) { Text("内置 2026 安排（日历里没节假日时用）") }
+            }) { Text("内置 2026 安排") }
         }
         if (importMessage.isNotBlank()) {
             Text(importMessage, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
         }
 
         Text(
-            "颜色：蓝=有课，红=放假，橙=调休（按别的星期上课），深蓝框=今天。点任意一天可以改。",
+            "颜色：蓝=有课，红=放假，橙=调休（上班日先「待安排」，点进去选上哪天的课），灰=学期外（寒暑假），深蓝框=今天。",
             fontSize = 11.sp,
             modifier = Modifier.padding(top = 6.dp),
         )
@@ -302,7 +305,7 @@ fun CalendarScreen(
                                         DayKind.HOLIDAY -> append(" 放假")
                                         DayKind.SWAP -> {
                                             if (o.swapToDayOfWeek !in 1..7) {
-                                                append(" 调休（还没安排上哪天的课）")
+                                                append(" 调休（待安排上哪天的课）")
                                             } else {
                                                 append(" 上")
                                                 if (o.swapToWeek > 0) append("第").append(o.swapToWeek).append("周")
@@ -326,7 +329,7 @@ fun CalendarScreen(
         }
 
         Text(
-            "常见用法：国庆那几天标「放假」；被调成上课日的周末标「按别的星期上课」，再选是第几周的星期几。",
+            "寒暑假不用手标：第一周之前、最后一周之后的日期自动按学生假期显示（灰）。",
             fontSize = 11.sp,
             modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
         )
@@ -334,7 +337,7 @@ fun CalendarScreen(
 
     editingDate?.let { date ->
         val existing = WeekCalc.overrideOf(settings, date)
-        val week = WeekCalc.weekOf(WeekCalc.parseDate(settings.termStartDate), date)
+        val week = WeekCalc.weekOf(termStartDate, date)
         DayEditDialog(
             date = date,
             currentWeek = week,
@@ -372,6 +375,13 @@ fun CalendarScreen(
     }
 }
 
+/** 学期之外的日期是学生假期，按月份给个说法。 */
+private fun vacationLabel(date: LocalDate): String = when (date.monthValue) {
+    1, 2 -> "寒假"
+    7, 8 -> "暑假"
+    else -> "假期"
+}
+
 private data class HolidayRow(
     val event: DeviceCalendar.HolidayEvent,
     val selected: Boolean,
@@ -389,14 +399,14 @@ private fun HolidayImportDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("手机日历里的节假日（${rows.size} 条）") },
+        title = { Text("节假日（${rows.size} 条）") },
         text = {
             Column(
                 Modifier
                     .heightIn(max = 420.dp)
                     .verticalScroll(rememberScrollState())
             ) {
-                Text("勾选要应用的；标着「班」的会自动按调休处理，可以改是按星期几、第几周的课。", fontSize = 11.sp)
+                Text("勾选要应用的。标「班」的日子默认「待安排」，之后在日历页点那天再定上哪天的课。", fontSize = 11.sp)
                 rows.forEachIndexed { index, row ->
                     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -478,7 +488,7 @@ private fun DayEditDialog(
     onSave: (DayKind, Int, Int, String) -> Unit,
 ) {
     var kind by remember(date) { mutableStateOf(existing?.kind ?: DayKind.NORMAL) }
-    var swapTo by remember(date) { mutableStateOf(existing?.swapToDayOfWeek ?: date.dayOfWeek.value) }
+    var swapTo by remember(date) { mutableStateOf(existing?.swapToDayOfWeek ?: 0) }
     var swapWeek by remember(date) { mutableStateOf(existing?.swapToWeek ?: currentWeek) }
     var note by remember(date) { mutableStateOf(existing?.note.orEmpty()) }
 
@@ -503,12 +513,16 @@ private fun DayEditDialog(
                     FilterChip(
                         selected = kind == DayKind.SWAP,
                         onClick = { kind = DayKind.SWAP },
-                        label = { Text("按别的星期上") },
+                        label = { Text("调休（按别的星期上）") },
                     )
                 }
 
                 if (kind == DayKind.SWAP) {
-                    Text("按星期几的课表上（调休上班日可以先留空）", fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+                    Text(
+                        "按星期几的课表上（不确定就先「待安排」，之后再来定）",
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
                     Row(Modifier.horizontalScroll(rememberScrollState())) {
                         FilterChip(
                             selected = swapTo !in 1..7,
@@ -525,23 +539,25 @@ private fun DayEditDialog(
                             )
                         }
                     }
-                    Text("按第几周的课表上", fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
-                    Row(Modifier.horizontalScroll(rememberScrollState())) {
-                        FilterChip(
-                            selected = swapWeek <= 0,
-                            onClick = { swapWeek = -1 },
-                            label = { Text("这天所在的周（第 $currentWeek 周）") },
-                            modifier = Modifier.padding(end = 4.dp),
-                        )
-                        (1..6).forEach { w ->
-                            val value = currentWeek - 1 + w
-                            if (value in 1..30) {
-                                FilterChip(
-                                    selected = swapWeek == value,
-                                    onClick = { swapWeek = value },
-                                    label = { Text("第 $value 周") },
-                                    modifier = Modifier.padding(end = 4.dp),
-                                )
+                    if (swapTo in 1..7) {
+                        Text("按第几周的课表上", fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+                        Row(Modifier.horizontalScroll(rememberScrollState())) {
+                            FilterChip(
+                                selected = swapWeek <= 0,
+                                onClick = { swapWeek = -1 },
+                                label = { Text("这天所在的周（第 $currentWeek 周）") },
+                                modifier = Modifier.padding(end = 4.dp),
+                            )
+                            (1..6).forEach { w ->
+                                val value = currentWeek - 1 + w
+                                if (value in 1..30) {
+                                    FilterChip(
+                                        selected = swapWeek == value,
+                                        onClick = { swapWeek = value },
+                                        label = { Text("第 $value 周") },
+                                        modifier = Modifier.padding(end = 4.dp),
+                                    )
+                                }
                             }
                         }
                     }
