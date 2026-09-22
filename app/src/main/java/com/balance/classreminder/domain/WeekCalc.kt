@@ -28,7 +28,8 @@ object WeekCalc {
     fun weekOf(termStartMonday: LocalDate?, date: LocalDate): Int {
         if (termStartMonday == null) return 0
         val base = mondayOf(termStartMonday)
-        return (ChronoUnit.DAYS.between(base, date).toInt() / 7) + 1
+        // 用 floorDiv：开学前那几天要算成第 0 周，而不是第 1 周
+        return Math.floorDiv(ChronoUnit.DAYS.between(base, date).toInt(), 7) + 1
     }
 
     fun parseDate(iso: String): LocalDate? = runCatching { LocalDate.parse(iso.trim()) }.getOrNull()
