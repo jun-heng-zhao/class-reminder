@@ -82,6 +82,7 @@ fun CalendarScreen(
     var holidayRows by remember { mutableStateOf<List<HolidayRow>?>(null) }
     var importMessage by remember { mutableStateOf("") }
     var pendingFromPhone by remember { mutableStateOf<List<DeviceCalendar.HolidayEvent>>(emptyList()) }
+    var phoneCalendarEmpty by remember { mutableStateOf(false) }
 
     val termStartDate = WeekCalc.parseDate(settings.termStartDate)
     val termEndDate = termStartDate?.plusDays(settings.totalWeeks * 7L - 1)
@@ -134,8 +135,32 @@ fun CalendarScreen(
         }
         val from = termStartDate?.minusDays(14) ?: today.minusDays(30)
         val to = termStartDate?.plusDays(settings.totalWeeks * 7L + 28) ?: today.plusDays(210)
-        pendingFromPhone = DeviceCalendar.query(context, from, to)
-            .filter { event -> settings.overrides.none { it.date == event.date.toString() } }
+        val events = DeviceCalendar.query(context, from, to)
+        phoneCalendarEmpty = events.isEmpty()
+        pendingFromPhone = events.filter { event -> settings.overrides.none { it.date == event.date.toString() } }
+    }
+
+    fun applyBuiltInArrangement() {
+        val entries = BuiltInHolidays.entriesForTerm(termStartDate, settings.totalWeeks)
+        if (entries.isEmpty()) {
+            importMessage = "这个学期范围内没有内置的法定节假日"
+            return
+        }
+        holidayRows = entries.map { entry ->
+            HolidayRow(
+                event = DeviceCalendar.HolidayEvent(
+                    date = LocalDate.parse(entry.date),
+                    title = entry.note,
+                    calendarName = "内置：2026 年国务院放假安排",
+                    isWorkday = entry.kind == DayKind.SWAP,
+                ),
+                selected = true,
+                kind = entry.kind,
+                swapToDayOfWeek = entry.swapToDayOfWeek,
+                swapToWeek = WeekCalc.weekOf(termStartDate, LocalDate.parse(entry.date)),
+            )
+        }
+        importMessage = ""
     }
 
     fun putOverride(date: LocalDate, kind: DayKind, swapTo: Int, note: String, swapWeek: Int) {
@@ -227,7 +252,7 @@ fun CalendarScreen(
                                 color = Color(0xFF7A3E00),
                             )
                             classes.isNotEmpty() -> Text(
-                                "${classes.size} 节",
+                                "有课",
                                 fontSize = 9.sp,
                                 color = Color(0xFF0D47A1),
                                 maxLines = 1,
@@ -235,6 +260,23 @@ fun CalendarScreen(
                             vacation -> Text(vacationLabel(date), fontSize = 9.sp, color = Color(0xFF37474F))
                         }
                     }
+                }
+            }
+        }
+
+        if (phoneCalendarEmpty && settings.overrides.none { it.kind == DayKind.HOLIDAY }) {
+            Card(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                Column(Modifier.padding(10.dp)) {
+                    Text("系统日历里没有节假日数据", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text(
+                        "MIUI 把法定节假日放在自家日历 App 里，第三方应用通过 CalendarContract 读不到。" +
+                            "用内置的 2026 年国务院放假安排一键铺上，放假标红、调休上班日先留空。",
+                        fontSize = 11.sp,
+                    )
+                    Button(
+                        onClick = { applyBuiltInArrangement() },
+                        modifier = Modifier.padding(top = 4.dp),
+                    ) { Text("应用内置 2026 安排") }
                 }
             }
         }
@@ -259,28 +301,7 @@ fun CalendarScreen(
         Row(Modifier.padding(top = 8.dp)) {
             Button(onClick = { ensurePermissionThenQuery() }) { Text("从手机日历导入") }
             Spacer(Modifier.width(8.dp))
-            OutlinedButton(onClick = {
-                val entries = BuiltInHolidays.entriesForTerm(termStartDate, settings.totalWeeks)
-                if (entries.isEmpty()) {
-                    importMessage = "这个学期范围内没有内置的法定节假日"
-                } else {
-                    holidayRows = entries.map { entry ->
-                        HolidayRow(
-                            event = DeviceCalendar.HolidayEvent(
-                                date = LocalDate.parse(entry.date),
-                                title = entry.note,
-                                calendarName = "内置：2026 年国务院放假安排",
-                                isWorkday = entry.kind == DayKind.SWAP,
-                            ),
-                            selected = true,
-                            kind = entry.kind,
-                            swapToDayOfWeek = entry.swapToDayOfWeek,
-                            swapToWeek = WeekCalc.weekOf(termStartDate, LocalDate.parse(entry.date)),
-                        )
-                    }
-                    importMessage = ""
-                }
-            }) { Text("内置 2026 安排") }
+            OutlinedButton(onClick = { applyBuiltInArrangement() }) { Text("内置 2026 安排") }
         }
         if (importMessage.isNotBlank()) {
             Text(importMessage, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))

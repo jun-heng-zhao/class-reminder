@@ -18,3 +18,8 @@ captures/
 
 # 个人课表数据（不进公开仓库）
 /docs/我的课表与作息.txt
+
+# 签名文件（绝不进仓库）
+keystore.properties
+*.jks
+*.keystore
