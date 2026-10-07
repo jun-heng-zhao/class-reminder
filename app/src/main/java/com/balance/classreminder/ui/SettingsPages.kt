@@ -5,19 +5,12 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
@@ -35,9 +28,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -46,12 +36,10 @@ import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 import com.balance.classreminder.data.AppSettings
 import com.balance.classreminder.data.Course
-import com.balance.classreminder.data.IconStore
 import com.balance.classreminder.data.PeriodTime
 import com.balance.classreminder.data.Store
 import com.balance.classreminder.data.parseMinute
 import com.balance.classreminder.domain.WeekCalc
-import com.balance.classreminder.widget.IconWidgetProvider
 import java.time.LocalDate
 
 /** 学期与提醒：第一周、总周数、默认提前量、响铃开关。 */
@@ -171,84 +159,6 @@ fun PeriodsPage(settings: AppSettings, onChange: (AppSettings) -> Unit) {
                 }
             },
         )
-    }
-}
-
-/**
- * 软件图标：安卓不允许应用在运行时换掉自己的 launcher 图标，
- * 所以把用户选的图做成 1×1 桌面小组件，摆在桌面上就是一个自定义图标。
- */
-@Composable
-fun AppIconPage() {
-    val context = LocalContext.current
-    var version by remember { mutableStateOf(0) }        // 换图 / 删图后靠它重新读预览
-    var message by remember { mutableStateOf("") }
-    var preview by remember(version) { mutableStateOf(IconStore.load(context)?.asImageBitmap()) }
-
-    val picker = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        val saved = IconStore.save(context, uri)
-        // 已经摆到桌面的图标跟着换图，不用重新添加
-        if (saved) IconWidgetProvider.refresh(context)
-        message = if (saved) "图片存好了，点下面按钮摆到桌面" else "这张图读不了，换一张再试"
-        version++
-    }
-
-    preview?.let { bitmap ->
-        Image(
-            bitmap = bitmap,
-            contentDescription = "当前图标图片",
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.size(96.dp).clip(RoundedCornerShape(20.dp)),
-        )
-    }
-
-    Row(Modifier.padding(top = 8.dp)) {
-        OutlinedButton(onClick = {
-            picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-        }) { Text(if (preview == null) "选择图片" else "更换图片") }
-        if (preview != null) {
-            Spacer(Modifier.width(8.dp))
-            OutlinedButton(onClick = {
-                IconStore.clear(context)
-                IconWidgetProvider.refresh(context)
-                version++
-                message = "已移除图片，桌面上那个图标会变回自带图"
-            }) { Text("移除图片") }
-        }
-    }
-
-    Button(
-        onClick = {
-            // 先试固定快捷方式（图标带应用名，最像真图标），不行再退回桌面小组件；
-            // MIUI 的桌面一律拒绝第三方的固定请求，所以提示里直接带上手动办法
-            val requested = IconStore.pinShortcut(context) || IconWidgetProvider.requestPin(context)
-            message = if (requested)
-                "已请求摆到桌面：系统支持的话会弹确认框，没反应就用手动办法 —— 长按桌面 → 添加小部件 → 课表提醒，把「图标」拖上去"
-            else
-                "这个桌面不支持自动添加：长按桌面 → 添加小部件 → 课表提醒，把「图标」拖到桌面上"
-        },
-        modifier = Modifier.padding(top = 8.dp),
-    ) { Text("摆到桌面当图标") }
-
-    if (message.isNotBlank()) Text(message, fontSize = 11.sp)
-
-    Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {
-        Column(Modifier.padding(10.dp)) {
-            Text("说明", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-            Text(
-                "1. 安卓不允许应用直接替换自己的桌面图标（图标必须是装机时就定死的资源），" +
-                    "所以这里用「自定义图标的桌面快捷方式 / 1×1 小组件」实现：把选好的图摆到桌面当图标，" +
-                    "点一下进应用；原来那个图标在桌面上删掉即可。\n" +
-                    "2. 没自动摆上去的话：长按桌面 → 添加小部件 → 课表提醒 → 把「图标」拖到桌面；" +
-                    "以后在这里换图，桌面上的图标会自动跟着换。\n" +
-                    "3. 想连系统里的图标一起换：小米 / HyperOS 的桌面大多支持长按应用图标 →「编辑 / 更换图标」→ 选中本应用换图（各版本菜单叫法略有不同）。\n" +
-                    "4. 图片只存在手机本地，不上传。",
-                fontSize = 12.sp,
-            )
-        }
     }
 }
 

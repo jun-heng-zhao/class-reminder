@@ -95,5 +95,5 @@ fun weekOf(termStart: LocalDate, date: LocalDate): Int =
 5. **法定节假日**：MIUI / HyperOS 不通过 CalendarContract 对第三方应用暴露「中国法定节假日」，所以日历页优先读系统日历，读不到就自动套用内置数据（`data/BuiltInHolidays.kt`），假期不再误发提醒。2025 / 2026 是国务院完整安排（含调休上班日）；其他年份退到可计算的法定假日（元旦、春节除夕~初三、清明、劳动节、国庆），端午与中秋需要系统日历或手动标注。
 6. **学期区间**：`WeekCalc.courseOnDate` 只认第 1 周~总周数之间的日子，区间外（寒暑假）不排课也不提醒 —— 有的课 `endWeek` 写得比总周数大，光看周次范围会算到假期里去。
 7. **强提醒铃声**（`remind/AlarmPlayer.kt`）：铃声由全局单例播放，通知上的「停止响铃」、划掉通知、点开应用、以及 1 分钟超时都会 `stop()` 并释放播放器，避免"响了只能杀进程"。
-8. **自定义图标**（`data/IconStore.kt` + `widget/IconWidgetProvider.kt`）：安卓不允许应用运行时替换自己的 launcher 图标（图标必须是编译期资源），所以选图后缩到 512 存 `filesDir/app_icon.jpg`，再以「自定义图标的固定快捷方式 / 1×1 桌面小组件」摆到桌面当图标。实测 MIUI / HyperOS 的桌面会拒绝第三方的 `requestPinShortcut` / `requestPinAppWidget`（日志：`add shortcut failed, ... has no permission`，即使声明了 `com.android.launcher.permission.INSTALL_SHORTCUT` 也没用），所以页面里同时给出「长按桌面 → 添加小部件 → 课表提醒」的手动办法。
+8. **桌面图标不可自定义**（已尝试后放弃）：安卓不允许应用在运行时替换自己的 launcher 图标（必须是编译期资源），HyperOS 桌面也会拒绝第三方的 `requestPinShortcut` / `requestPinAppWidget`（日志：`add shortcut failed, ... has no permission`，即使声明了 `com.android.launcher.permission.INSTALL_SHORTCUT` 也没用，而且这两个 API 会返回 true，靠返回值判断不了成败）。真要换图标只能用户自己在 MIUI 桌面里改。
 9. **导航结构**（`ui/AppRoot.kt` + `ui/SettingsScreen.kt`）：课表 / 导入 / 日历 / 设置四个主页面用 `HorizontalPager` 装，底部导航与左右滑动改的是同一个 `pagerState`；设置页一级是分组菜单，二级页面自己再套一层 pager（内层优先消费横向手势），返回键先回菜单。

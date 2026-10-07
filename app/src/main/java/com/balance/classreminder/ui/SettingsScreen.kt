@@ -35,7 +35,6 @@ import com.balance.classreminder.data.Course
 private val SECTIONS = listOf(
     "学期与提醒" to "第一周的周一、总周数、默认提前几分钟、响铃",
     "上课节次时间" to "每节课几点上下课",
-    "软件图标" to "用自己的图做桌面图标",
     "课表数据" to "导出 / 从备份恢复",
     "提醒权限" to "通知、精确闹钟、HyperOS 设置",
 )
@@ -90,8 +89,7 @@ fun SettingsScreen(
                 when (page) {
                     0 -> TermSettingsPage(settings = settings, onChange = onChange)
                     1 -> PeriodsPage(settings = settings, onChange = onChange)
-                    2 -> AppIconPage()
-                    3 -> DataPage(courses = courses)
+                    2 -> DataPage(courses = courses)
                     else -> PermissionsPage(settings = settings, onTestNotification = onTestNotification)
                 }
             }
