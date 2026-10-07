@@ -63,4 +63,17 @@ class CodecTest {
         assertEquals(20, settings.totalWeeks)
         assertEquals(defaultPeriods(), settings.periods)
     }
+
+    @Test
+    fun decode_keepsPendingSwapArrangement() {
+        // 调休上班日「待安排」是 0，解码时不能被夹成 1，否则重启后会按周一误发提醒
+        val text = buildString {
+            appendLine("v1")
+            appendLine("D\t2026-10-10\tSWAP\t0\t国庆调休\t-1")
+        }
+        val (_, settings) = Codec.decode(text)
+
+        assertEquals(1, settings.overrides.size)
+        assertEquals(0, settings.overrides[0].swapToDayOfWeek)
+    }
 }

@@ -13,13 +13,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
-import androidx.core.content.ContextCompat
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
+import com.balance.classreminder.remind.Notifier
 import com.balance.classreminder.ui.AppRoot
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 从通知点进来就说明人已经到了，铃声别再响
+        Notifier.stopAlarm()
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {

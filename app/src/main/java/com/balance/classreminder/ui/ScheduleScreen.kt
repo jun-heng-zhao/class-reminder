@@ -64,7 +64,8 @@ fun ScheduleScreen(
 ) {
     val periods = settings.periods
     val context = LocalContext.current
-    var listMode by remember { mutableStateOf(false) }
+    // 默认进列表视图：一眼看清「几点、去哪、上什么」，要看整周再切表格
+    var listMode by remember { mutableStateOf(true) }
     val notificationsOff = !NotificationManagerCompat.from(context).areNotificationsEnabled()
     val exactAlarmOff = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
         !(context.getSystemService(AlarmManager::class.java)?.canScheduleExactAlarms() ?: false)

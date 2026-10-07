@@ -9,6 +9,9 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- 读系统日历里的法定节假日，用来生成放假/调休 -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <!-- 把自定义图标摆到桌面：MIUI / HyperOS 的桌面把这两个权限设成 normal，声明即可拿到 -->
+    <uses-permission android:name="com.android.launcher.permission.INSTALL_SHORTCUT" />
+    <uses-permission android:name="com.miui.home.launcher.permission.INSTALL_WIDGET" />
 
     <application
         android:allowBackup="true"
@@ -32,6 +35,23 @@
         <receiver
             android:name=".remind.ReminderReceiver"
             android:exported="false" />
+
+        <!-- 通知上的「停止响铃」与划掉通知的收尾 -->
+        <receiver
+            android:name=".remind.StopAlarmReceiver"
+            android:exported="false" />
+
+        <!-- 自定义图标的 1×1 桌面小组件：图标由系统/桌面负责派发更新 -->
+        <receiver
+            android:name=".widget.IconWidgetProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/app_icon_widget_info" />
+        </receiver>
 
         <receiver
             android:name=".remind.BootReceiver"

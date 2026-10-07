@@ -6,10 +6,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
-import android.media.MediaPlayer
 import android.media.RingtoneManager
-import android.os.Handler
-import android.os.Looper
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.balance.classreminder.MainActivity
@@ -67,6 +64,15 @@ object Notifier {
             append(" 上课")
             if (minutes > 0) append("，还有 ").append(minutes).append(" 分钟")
         }
+        // 「停止响铃」：点了或把通知划掉都走这里，铃声马上停、通知也收掉
+        val stop = PendingIntent.getBroadcast(
+            context,
+            id,
+            Intent(context, StopAlarmReceiver::class.java)
+                .setAction(ACTION_STOP)
+                .putExtra(StopAlarmReceiver.EXTRA_NOTIFICATION_ID, id),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
         val builder = NotificationCompat.Builder(context, if (strong) CHANNEL_STRONG else CHANNEL_NORMAL)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setContentTitle(courseName)
@@ -76,43 +82,23 @@ object Notifier {
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(if (strong) NotificationCompat.CATEGORY_ALARM else NotificationCompat.CATEGORY_REMINDER)
-        if (strong) builder.setVibrate(longArrayOf(0, 600, 300, 600, 300, 600))
+            // 划掉通知也要把铃声停掉，不能只剩杀进程这一条路
+            .setDeleteIntent(stop)
+        if (strong) {
+            builder.setVibrate(longArrayOf(0, 600, 300, 600, 300, 600))
+            builder.addAction(android.R.drawable.ic_lock_silent_mode, "停止响铃", stop)
+        }
 
         val manager = NotificationManagerCompat.from(context)
         if (!manager.areNotificationsEnabled()) return
         runCatching { manager.notify(id, builder.build()) }
         // 强提醒直接自己放铃声：MIUI 上渠道声音经常被系统按"通知"处理，靠渠道响不起来
-        if (strong) playAlarm(context)
+        if (strong) AlarmPlayer.start(context)
     }
 
-    /**
-     * 用 MediaPlayer 走闹钟音频流放一段铃声。
-     * 渠道声音在 HyperOS 上不一定响（通知被折叠/静音策略影响），自己放最稳。
-     */
-    private fun playAlarm(context: Context) {
-        runCatching {
-            val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-                ?: return
-            val player = MediaPlayer().apply {
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ALARM)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build()
-                )
-                setDataSource(context, uri)
-                isLooping = true
-                prepare()
-                start()
-            }
-            Handler(Looper.getMainLooper()).postDelayed({
-                runCatching {
-                    if (player.isPlaying) player.stop()
-                    player.release()
-                }
-            }, 20_000)
-        }
-    }
+    /** 点开应用、或点通知上的「停止响铃」时调用：把还在响的铃声收掉。 */
+    fun stopAlarm() = AlarmPlayer.stop()
+
+    /** 停止响铃的广播 action，通知按钮与划掉通知都用它。 */
+    const val ACTION_STOP = "com.balance.classreminder.STOP_ALARM"
 }

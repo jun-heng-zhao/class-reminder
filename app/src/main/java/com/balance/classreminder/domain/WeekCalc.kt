@@ -107,7 +107,16 @@ object WeekCalc {
     fun overrideOf(settings: AppSettings, date: LocalDate): DayOverride? =
         settings.overrides.firstOrNull { it.date == date.toString() }
 
-    /** 这天有没有这门课（考虑放假与调休）。 */
+    /**
+     * 这天是否落在学期区间内（第 1 周 ~ 总周数）。
+     * 区间之外是寒暑假，课表按学生假期显示，也不该再发提醒。
+     */
+    fun inTerm(settings: AppSettings, date: LocalDate): Boolean {
+        val start = parseDate(settings.termStartDate) ?: return true
+        return weekOf(start, date) in 1..settings.totalWeeks
+    }
+
+    /** 这天有没有这门课（考虑放假、调休与寒暑假）。 */
     fun courseOnDate(course: Course, termStartMonday: LocalDate, settings: AppSettings, date: LocalDate): Boolean {
         val effectiveDay = effectiveDayOfWeek(settings, date) ?: return false
         if (course.dayOfWeek != effectiveDay) return false
@@ -115,6 +124,8 @@ object WeekCalc {
         // 调休可以指定"按第几周的课表"；没指定就用这天所在的周次
         val week = override?.takeIf { it.kind == DayKind.SWAP && it.swapToWeek > 0 }?.swapToWeek
             ?: weekOf(termStartMonday, date)
+        // 学期外的周次不排课：有的课 endWeek 写得比总周数大，光看周次范围会算到假期里去
+        if (week < 1 || week > settings.totalWeeks) return false
         return weekMatches(course, week)
     }
 

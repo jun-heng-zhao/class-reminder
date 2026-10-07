@@ -74,7 +74,8 @@ object Codec {
                         date = date,
                         kind = runCatching { DayKind.valueOf(f.getOrNull(2).orEmpty()) }
                             .getOrDefault(DayKind.NORMAL),
-                        swapToDayOfWeek = (f.getOrNull(3)?.toIntOrNull() ?: 1).coerceIn(1, 7),
+                        // 0 = 调休上班日「待安排」，不能被夹到 1（否则重启后会变成「上周一的课」而误发提醒）
+                        swapToDayOfWeek = (f.getOrNull(3)?.toIntOrNull() ?: 0).coerceIn(0, 7),
                         note = unesc(f.getOrNull(4).orEmpty()),
                         swapToWeek = f.getOrNull(5)?.toIntOrNull() ?: -1,
                     )

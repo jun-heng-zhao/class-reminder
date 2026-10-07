@@ -1,7 +1,9 @@
 package com.balance.classreminder.ui
 
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
@@ -18,6 +20,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -27,6 +30,7 @@ import com.balance.classreminder.data.Store
 import com.balance.classreminder.domain.WeekCalc
 import com.balance.classreminder.remind.Notifier
 import com.balance.classreminder.remind.ReminderScheduler
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.util.UUID
 
@@ -37,10 +41,17 @@ fun AppRoot() {
 
     var courses by remember { mutableStateOf(store.courses) }
     var settings by remember { mutableStateOf(store.settings) }
-    var tab by remember { mutableIntStateOf(0) }
     var weekOffset by remember { mutableIntStateOf(0) }
     var editing by remember { mutableStateOf<Course?>(null) }
     var newSlot by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+    // 四个页面装在一个 pager 里：底部导航和左右滑动改的是同一个状态，不会各跑各的
+    val pagerState = rememberPagerState { 4 }
+    val tab = pagerState.currentPage
+    val scope = rememberCoroutineScope()
+
+    fun goTo(page: Int) {
+        scope.launch { pagerState.animateScrollToPage(page) }
+    }
 
     fun persist(newCourses: List<Course> = courses, newSettings: AppSettings = settings) {
         courses = newCourses
@@ -52,7 +63,7 @@ fun AppRoot() {
     LaunchedEffect(Unit) {
         Notifier.ensureChannels(context)
         ReminderScheduler.reschedule(context)
-        if (store.settings.termStartDate.isBlank()) tab = 3 // 没设第一周就直接去设置页
+        if (store.settings.termStartDate.isBlank()) pagerState.scrollToPage(3) // 没设第一周就直接去设置页
     }
 
     val termStart = WeekCalc.parseDate(settings.termStartDate)
@@ -64,33 +75,37 @@ fun AppRoot() {
             NavigationBar {
                 NavigationBarItem(
                     selected = tab == 0,
-                    onClick = { tab = 0 },
+                    onClick = { goTo(0) },
                     icon = { Icon(Icons.Filled.DateRange, contentDescription = null) },
                     label = { Text("课表") },
                 )
                 NavigationBarItem(
                     selected = tab == 1,
-                    onClick = { tab = 1 },
+                    onClick = { goTo(1) },
                     icon = { Icon(Icons.Filled.Add, contentDescription = null) },
                     label = { Text("导入") },
                 )
                 NavigationBarItem(
                     selected = tab == 2,
-                    onClick = { tab = 2 },
+                    onClick = { goTo(2) },
                     icon = { Icon(Icons.Filled.EditCalendar, contentDescription = null) },
                     label = { Text("日历") },
                 )
                 NavigationBarItem(
                     selected = tab == 3,
-                    onClick = { tab = 3 },
+                    onClick = { goTo(3) },
                     icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
                     label = { Text("设置") },
                 )
             }
         }
     ) { padding ->
-        Box(Modifier.padding(padding)) {
-            when (tab) {
+        // 左右滑动切页；设置页里的二级页面自己也带 pager，滑动会优先给内层
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize().padding(padding),
+        ) { page ->
+            when (page) {
                 0 -> ScheduleScreen(
                     courses = courses,
                     settings = settings,
@@ -107,7 +122,7 @@ fun AppRoot() {
                     onImportCourses = { parsed ->
                         val added = parsed.map { it.copy(id = UUID.randomUUID().toString()) }
                         persist(courses + added)
-                        tab = 0
+                        goTo(0)
                     },
                     onChangeSettings = { persist(newSettings = it) },
                 )
