@@ -85,6 +85,8 @@ data class AppSettings(
     val strongReminder: Boolean = false,     // true=响铃震动并尝试全屏提醒
     val periods: List<PeriodTime> = defaultPeriods(),
     val overrides: List<DayOverride> = emptyList(),
+    val manualWeek: Int = 0,                 // >0 时按校准周递增，0 使用开学基准
+    val manualWeekMonday: String = "",        // 校准所在周周一，保留原开学日期以便恢复
 )
 
 /** 华侨大学作息时间表（教务处 2022-08-22 发布），第 1…13 节。设置页可改。 */

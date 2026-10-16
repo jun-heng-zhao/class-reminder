@@ -17,6 +17,8 @@ object Codec {
                 settings.totalWeeks.toString(),
                 settings.defaultReminderMinutes.toString(),
                 if (settings.strongReminder) "1" else "0",
+                settings.manualWeek.toString(),
+                esc(settings.manualWeekMonday),
             ).joinToString("\t")
         )
         settings.periods.forEach { p ->
@@ -60,6 +62,8 @@ object Codec {
                         totalWeeks = f.getOrNull(2)?.toIntOrNull() ?: settings.totalWeeks,
                         defaultReminderMinutes = f.getOrNull(3)?.toIntOrNull() ?: settings.defaultReminderMinutes,
                         strongReminder = f.getOrNull(4) == "1",
+                        manualWeek = f.getOrNull(5)?.toIntOrNull()?.coerceAtLeast(0) ?: 0,
+                        manualWeekMonday = unesc(f.getOrNull(6).orEmpty()),
                     )
                 }
                 "P" -> {
@@ -74,7 +78,7 @@ object Codec {
                         date = date,
                         kind = runCatching { DayKind.valueOf(f.getOrNull(2).orEmpty()) }
                             .getOrDefault(DayKind.NORMAL),
-                        swapToDayOfWeek = (f.getOrNull(3)?.toIntOrNull() ?: 1).coerceIn(1, 7),
+                        swapToDayOfWeek = (f.getOrNull(3)?.toIntOrNull() ?: 0).takeIf { it in 1..7 } ?: 0,
                         note = unesc(f.getOrNull(4).orEmpty()),
                         swapToWeek = f.getOrNull(5)?.toIntOrNull() ?: -1,
                     )

@@ -1,5 +1,6 @@
 package com.balance.classreminder.remind
 
+import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -10,6 +11,9 @@ import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.os.Handler
 import android.os.Looper
+import android.os.Build
+import androidx.core.content.ContextCompat
+import android.content.pm.PackageManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.balance.classreminder.MainActivity
@@ -80,6 +84,10 @@ object Notifier {
 
         val manager = NotificationManagerCompat.from(context)
         if (!manager.areNotificationsEnabled()) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) return
         runCatching { manager.notify(id, builder.build()) }
         // 强提醒直接自己放铃声：MIUI 上渠道声音经常被系统按"通知"处理，靠渠道响不起来
         if (strong) playAlarm(context)

@@ -1,8 +1,6 @@
 package com.balance.classreminder.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import android.app.AlarmManager
 import android.os.Build
@@ -11,7 +9,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -21,7 +18,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -30,21 +26,22 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 import com.balance.classreminder.data.AppSettings
 import com.balance.classreminder.data.Course
-import com.balance.classreminder.data.DAY_NAMES
+import com.balance.classreminder.data.DayKind
 import com.balance.classreminder.data.dayName
 import com.balance.classreminder.domain.WeekCalc
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
 private val PALETTE = listOf(
     Color(0xFFBBDEFB), Color(0xFFC8E6C9), Color(0xFFFFE0B2), Color(0xFFF8BBD0),
@@ -61,24 +58,74 @@ fun ScheduleScreen(
     onBackToNow: () -> Unit,
     onAddAt: (Int, Int) -> Unit,
     onEdit: (Course) -> Unit,
+    today: LocalDate = LocalDate.now(),
 ) {
     val periods = settings.periods
     val context = LocalContext.current
-    var listMode by remember { mutableStateOf(false) }
+    var showToday by rememberSaveable { mutableStateOf(true) } // 默认打开今日，周课表单独浏览
+    val todayScroll = rememberScrollState() // 两种课表分别保留滚动位置
+    val weekScroll = rememberScrollState()
     val notificationsOff = !NotificationManagerCompat.from(context).areNotificationsEnabled()
     val exactAlarmOff = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
         !(context.getSystemService(AlarmManager::class.java)?.canScheduleExactAlarms() ?: false)
+    val todayCourses = remember(settings, courses, today) { WeekCalc.coursesOn(settings, courses, today) } // 不随浏览周切换
+    val configured = WeekCalc.termMonday(settings) != null // 有效校准无需先填开学日
+    val todayOverride = remember(settings, today) { WeekCalc.overrideOf(settings, today) } // 放假与待安排分别提示
+    val timeFormat = remember { DateTimeFormatter.ofPattern("HH:mm") } // 时间固定两位，便于扫读
+    val weekCourses = remember(courses, week) { courses.filter { WeekCalc.weekMatches(it, week) } } // 仅相关输入变化时过滤
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(8.dp)) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = showToday, onClick = { showToday = true }, label = { Text("今日课表") }, modifier = Modifier.weight(1f))
+            FilterChip(selected = !showToday, onClick = { showToday = false }, label = { Text("周课表") }, modifier = Modifier.weight(1f))
+        }
+        Column(Modifier.weight(1f).verticalScroll(if (showToday) todayScroll else weekScroll)) {
+        if (showToday) {
+        Card(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("${today.monthValue}月${today.dayOfMonth}日 · ${dayName(today.dayOfWeek.value)}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(
+                    if (configured) "第 $currentWeek 周 · 今日 ${todayCourses.size} 门课，出发吧～" else "今日任务板，等待课表就位～",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                when {
+                    !configured -> Text("尚未配置教学周，请到「设置」填写开学日期或校准当前周。")
+                    todayOverride?.kind == DayKind.HOLIDAY -> Text("今天放假，安心补充能量～" + todayOverride.note.takeIf { it.isNotBlank() }?.let { "\n备注：$it" }.orEmpty())
+                    WeekCalc.needsArrangement(settings, today) -> Text("今天是调休日，课程待安排。请到「日历」指定上哪天的课；安排前不会提醒。")
+                    todayCourses.isEmpty() -> Text(
+                        if (courses.isEmpty()) "还没有课程，去「导入」添加课表，或切换「周课表」点击「加课」。"
+                        else "今天没有课程，自由时间解锁～"
+                    )
+                    else -> Text("按时间排好啦，点课程即可查看或修改～", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+        todayCourses.forEach { occurrence ->
+            Card(Modifier.fillMaxWidth().padding(bottom = 8.dp).clickable { onEdit(occurrence.course) }) {
+                Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(Modifier.width(62.dp)) {
+                        Text(occurrence.start.format(timeFormat), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(occurrence.end.format(timeFormat), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(occurrence.course.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                        Text(occurrence.course.location.ifBlank { "地点未填写，点此补充" }, style = MaterialTheme.typography.bodyMedium)
+                        Text("第 ${occurrence.course.startPeriod}–${occurrence.course.endPeriod} 节 · 点此编辑", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+        }
         if (notificationsOff || exactAlarmOff) {
             Card(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
                 Column(Modifier.padding(10.dp)) {
-                    Text("提醒现在收不到", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text("提醒权限待开启", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     if (notificationsOff) Text("· 通知权限没开，去「设置」页打开", fontSize = 12.sp)
                     if (exactAlarmOff) Text("· 精确闹钟没允许，去「设置」页打开", fontSize = 12.sp)
                 }
             }
         }
+        if (!showToday) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = { onWeekOffset(-1) }) { Text("◀ 上一周") }
             Spacer(Modifier.weight(1f))
@@ -91,11 +138,11 @@ fun ScheduleScreen(
             TextButton(onClick = { onWeekOffset(1) }) { Text("下一周 ▶") }
         }
 
-        if (settings.termStartDate.isBlank()) {
+        if (!configured) {
             Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                 Column(Modifier.padding(12.dp)) {
-                    Text("还没设置第一周的周一", fontWeight = FontWeight.Bold)
-                    Text("去「设置」里填上开学第一周的日期，才能算出今天是第几周。", fontSize = 13.sp)
+                    Text("还没配置教学周", fontWeight = FontWeight.Bold)
+                    Text("去「设置」填写开学日期或校准当前周，课表与提醒会使用同一基准。", fontSize = 13.sp)
                 }
             }
         } else if (week != currentWeek) {
@@ -107,101 +154,16 @@ fun ScheduleScreen(
         }
 
         Row(Modifier.padding(top = 4.dp)) {
-            FilterChip(
-                selected = !listMode,
-                onClick = { listMode = false },
-                label = { Text("表格") },
-                modifier = Modifier.padding(end = 6.dp),
-            )
-            FilterChip(
-                selected = listMode,
-                onClick = { listMode = true },
-                label = { Text("列表") },
-            )
+            Text("本周课程", style = MaterialTheme.typography.titleMedium, modifier = Modifier.align(Alignment.CenterVertically))
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = { onAddAt(1, 1) }) { Text("＋ 加课") }
         }
 
-        if (!listMode) {
-        // 星期表头
-        Row(Modifier.fillMaxWidth().padding(top = 6.dp)) {
-            Spacer(Modifier.width(26.dp))
-            DAY_NAMES.forEach { d ->
-                Text(
-                    text = d,
-                    modifier = Modifier.weight(1f),
-                    textAlign = TextAlign.Center,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                )
-            }
-        }
-
-        // 课表网格
-        for (period in periods.indices) {
-            val periodNo = period + 1
-            Row(Modifier.fillMaxWidth().height(64.dp)) {
-                Column(
-                    Modifier.width(42.dp).fillMaxHeight().padding(start = 1.dp),
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    Text("$periodNo", fontSize = 10.sp, fontWeight = FontWeight.Medium)
-                    Text(periods[period].startLabel, fontSize = 8.sp, color = Color(0xFF546E7A), lineHeight = 9.sp)
-                    Text(periods[period].endLabel, fontSize = 8.sp, color = Color(0xFF90A4AE), lineHeight = 9.sp)
-                }
-                for (day in 1..7) {
-                    val course = courses.firstOrNull {
-                        it.dayOfWeek == day &&
-                            periodNo >= it.startPeriod && periodNo <= it.endPeriod &&
-                            WeekCalc.weekMatches(it, week)
-                    }
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .border(0.5.dp, Color(0xFFBDBDBD))
-                            .background(
-                                if (course != null) PALETTE[course.colorIndex.mod(PALETTE.size)]
-                                else Color.Transparent
-                            )
-                            // 裁剪：课程名再长也只能待在自己格子里，不许压到邻格
-                            .clipToBounds()
-                            .clickable {
-                                if (course != null) onEdit(course) else onAddAt(day, periodNo)
-                            }
-                    ) {
-                        if (course != null && periodNo == course.startPeriod) {
-                            Column(Modifier.padding(horizontal = 2.dp, vertical = 2.dp)) {
-                                Text(
-                                    text = course.name,
-                                    fontSize = 9.sp,
-                                    lineHeight = 11.sp,
-                                    maxLines = if (course.endPeriod > course.startPeriod) 3 else 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                    fontWeight = FontWeight.Medium,
-                                )
-                                // 地点只在连堂课（格子高）时显示，单节课放不下就别硬塞
-                                if (course.location.isNotBlank() && course.endPeriod > course.startPeriod) {
-                                    Text(
-                                        text = "@" + course.location,
-                                        fontSize = 7.sp,
-                                        lineHeight = 9.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        color = Color(0xFF37474F),
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        } else {
             // 列表模式：按星期分组，一眼看清"几点、去哪、上什么"
             var anyThisWeek = false
             (1..7).forEach { day ->
-                val dayCourses = courses
-                    .filter { it.dayOfWeek == day && WeekCalc.weekMatches(it, week) }
+                val dayCourses = weekCourses
+                    .filter { it.dayOfWeek == day }
                     .sortedBy { it.startPeriod }
                 if (dayCourses.isEmpty()) return@forEach
                 anyThisWeek = true
@@ -245,15 +207,14 @@ fun ScheduleScreen(
             if (!anyThisWeek) {
                 Text("第 $week 周没有课", fontSize = 13.sp, modifier = Modifier.padding(vertical = 12.dp))
             }
-        }
-
-        val countThisWeek = courses.count { WeekCalc.weekMatches(it, week) }
+        val countThisWeek = weekCourses.size
         Text(
-            text = "第 $week 周共 $countThisWeek 门课 · 点格子可加课，点课可改",
+            text = "第 $week 周共 $countThisWeek 门课 · 点课程可查看或修改",
             fontSize = 12.sp,
             modifier = Modifier.padding(top = 8.dp),
         )
         TextButton(onClick = { onAddAt(1, 1) }) { Text("＋ 新增一节其他时间的课") }
-
+        }
+        }
     }
 }

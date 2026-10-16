@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 图标与首页封面共用原图，外轮廓交由系统桌面裁剪。 -->
+<bitmap xmlns:android="http://schemas.android.com/apk/res/android"
+    android:src="@drawable/home_cover"
+    android:gravity="fill" />

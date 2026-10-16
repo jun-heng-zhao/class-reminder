@@ -15,8 +15,8 @@ android {
         applicationId = "com.balance.classreminder"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 6
+        versionName = "1.0.5"
     }
 
     // 发布签名：keystore.properties 在仓库外，不进版本库

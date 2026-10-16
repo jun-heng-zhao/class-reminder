@@ -36,6 +36,24 @@ object WeekCalc {
 
     fun parseDate(iso: String): LocalDate? = runCatching { LocalDate.parse(iso.trim()) }.getOrNull()
 
+    /** 校准折算为第一周周一，课程与提醒只认这一份基准；无效校准回退开学日。 */
+    fun termMonday(settings: AppSettings): LocalDate? {
+        val anchor = parseDate(settings.manualWeekMonday) // 校准周锚点
+        return if (settings.manualWeek > 0 && anchor != null) {
+            runCatching { mondayOf(anchor).minusWeeks(settings.manualWeek.toLong() - 1) }.getOrNull()
+                ?: parseDate(settings.termStartDate)?.let(::mondayOf)
+        } else parseDate(settings.termStartDate)?.let(::mondayOf)
+    }
+
+    fun teachingWeek(settings: AppSettings, date: LocalDate): Int = weekOf(termMonday(settings), date)
+
+    /** 显式调休周优先，否则使用统一基准；参数仅兼容旧调用提供的开学日。 */
+    private fun effectiveWeek(settings: AppSettings, date: LocalDate, fallbackMonday: LocalDate): Int {
+        val override = overrideOf(settings, date) // 当天调休可能借用别周课程
+        return override?.takeIf { it.kind == DayKind.SWAP && it.swapToWeek > 0 }?.swapToWeek
+            ?: weekOf(termMonday(settings) ?: fallbackMonday, date)
+    }
+
     /**
      * 这门课到底上哪些周。
      * 有 [Course.weekSpec] 就按它解析（"15,16" 这种只在第 15、16 周上的课靠它表达），
@@ -111,11 +129,7 @@ object WeekCalc {
     fun courseOnDate(course: Course, termStartMonday: LocalDate, settings: AppSettings, date: LocalDate): Boolean {
         val effectiveDay = effectiveDayOfWeek(settings, date) ?: return false
         if (course.dayOfWeek != effectiveDay) return false
-        val override = overrideOf(settings, date)
-        // 调休可以指定"按第几周的课表"；没指定就用这天所在的周次
-        val week = override?.takeIf { it.kind == DayKind.SWAP && it.swapToWeek > 0 }?.swapToWeek
-            ?: weekOf(termStartMonday, date)
-        return weekMatches(course, week)
+        return weekMatches(course, effectiveWeek(settings, date, termStartMonday))
     }
 
     /** 把节次换算成具体时刻；节次超出作息表返回 null。 */
@@ -136,12 +150,12 @@ object WeekCalc {
         val periods = settings.periods
         val start = timeOfPeriod(periods, course.startPeriod, end = false) ?: return null
         val end = timeOfPeriod(periods, course.endPeriod, end = true) ?: start
-        return Occurrence(course, LocalDateTime.of(date, start), LocalDateTime.of(date, end), weekOf(termStartMonday, date))
+        return Occurrence(course, LocalDateTime.of(date, start), LocalDateTime.of(date, end), effectiveWeek(settings, date, termStartMonday))
     }
 
     /** 某天要上的全部课，按时间排好（日历页用）。 */
     fun coursesOn(settings: AppSettings, courses: List<Course>, date: LocalDate): List<Occurrence> {
-        val termStart = parseDate(settings.termStartDate) ?: return emptyList()
+        val termStart = termMonday(settings) ?: return emptyList()
         return courses.mapNotNull { occurrenceOn(it, termStart, settings, date) }.sortedBy { it.start }
     }
 
@@ -155,7 +169,7 @@ object WeekCalc {
         now: LocalDateTime,
         horizonDays: Int = 8,
     ): List<Occurrence> {
-        val termStart = parseDate(settings.termStartDate) ?: return emptyList()
+        val termStart = termMonday(settings) ?: return emptyList()
         val out = mutableListOf<Occurrence>()
         val today = now.toLocalDate()
         for (offset in 0..horizonDays) {

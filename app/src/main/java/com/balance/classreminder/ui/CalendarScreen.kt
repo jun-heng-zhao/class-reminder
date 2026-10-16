@@ -1,3 +1,4 @@
+// 教学日历、日期调整与节假日导入。
 package com.balance.classreminder.ui
 
 import android.Manifest
@@ -8,11 +9,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -27,6 +28,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -55,6 +57,7 @@ import com.balance.classreminder.data.DayOverride
 import com.balance.classreminder.data.DeviceCalendar
 import com.balance.classreminder.data.dayName
 import com.balance.classreminder.domain.WeekCalc
+import kotlinx.coroutines.CancellationException
 import java.time.LocalDate
 import java.time.YearMonth
 
@@ -73,6 +76,7 @@ private val COLOR_VACATION = Color(0xFFCFD8DC)
 fun CalendarScreen(
     settings: AppSettings,
     courses: List<Course>,
+    active: Boolean = true,
     onChange: (AppSettings) -> Unit,
 ) {
     val context = LocalContext.current
@@ -81,11 +85,28 @@ fun CalendarScreen(
     var editingDate by remember { mutableStateOf<LocalDate?>(null) }
     var holidayRows by remember { mutableStateOf<List<HolidayRow>?>(null) }
     var importMessage by remember { mutableStateOf("") }
-    var pendingFromPhone by remember { mutableStateOf<List<DeviceCalendar.HolidayEvent>>(emptyList()) }
-    var phoneCalendarEmpty by remember { mutableStateOf(false) }
-
-    val termStartDate = WeekCalc.parseDate(settings.termStartDate)
+    val termStartDate = WeekCalc.termMonday(settings)
     val termEndDate = termStartDate?.plusDays(settings.totalWeeks * 7L - 1)
+    val queryFrom = termStartDate?.minusDays(14) ?: today.minusDays(30)
+    val queryTo = termStartDate?.plusDays(settings.totalWeeks * 7L + 28) ?: today.plusDays(210)
+    var phoneEvents by remember(queryFrom, queryTo) {
+        mutableStateOf<List<DeviceCalendar.HolidayEvent>?>(null)
+    }
+    var calendarLoading by remember(queryFrom, queryTo) { mutableStateOf(false) }
+    var calendarError by remember(queryFrom, queryTo) { mutableStateOf("") }
+    var queryRequest by remember { mutableStateOf(0) }
+    var importAfterQuery by remember(queryFrom, queryTo) { mutableStateOf(false) }
+    val phoneCalendarEmpty = phoneEvents?.isEmpty() == true
+    val pendingFromPhone = remember(phoneEvents, settings.overrides) {
+        phoneEvents.orEmpty().filter { event -> settings.overrides.none { it.date == event.date.toString() } }
+    }
+    // 提醒偏好、导入弹窗及加载状态变化都不影响整月课程，避免重复解析课程周次。
+    val monthCourses = remember(month, courses, termStartDate, settings.periods, settings.overrides) {
+        (1..month.lengthOfMonth()).associate { day ->
+            val date = month.atDay(day)
+            date to WeekCalc.coursesOn(settings, courses, date)
+        }
+    }
 
     fun applyHolidays(events: List<DeviceCalendar.HolidayEvent>) {
         if (events.isEmpty()) {
@@ -101,43 +122,57 @@ fun CalendarScreen(
                 // 标「班」的日子先不定上哪天的课，之后由用户安排
                 swapToDayOfWeek = if (event.isWorkday) 0 else event.date.dayOfWeek.value,
                 swapToWeek = if (event.isWorkday) -1
-                else WeekCalc.weekOf(termStartDate, event.date),
+                else WeekCalc.teachingWeek(settings, event.date),
             )
         }
     }
 
     fun queryPhoneCalendar() {
-        val from = termStartDate?.minusDays(14) ?: today.minusDays(30)
-        val to = termStartDate?.plusDays(settings.totalWeeks * 7L + 28) ?: today.plusDays(210)
-        applyHolidays(DeviceCalendar.query(context, from, to))
+        importAfterQuery = true
+        queryRequest++
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) queryPhoneCalendar()
-        else importMessage = "没给日历权限，读不到系统日历里的节假日；也可以手动标或用内置安排。"
+        if (granted) queryRequest++
+        else {
+            importAfterQuery = false
+            importMessage = "没给日历权限，读不到系统日历里的节假日；也可以手动标或用内置安排。"
+        }
     }
 
     fun ensurePermissionThenQuery() {
         val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) ==
             PackageManager.PERMISSION_GRANTED
-        if (granted) queryPhoneCalendar() else permissionLauncher.launch(Manifest.permission.READ_CALENDAR)
+        if (granted) queryPhoneCalendar() else {
+            importAfterQuery = true
+            permissionLauncher.launch(Manifest.permission.READ_CALENDAR)
+        }
     }
 
     // 走系统日历接口：进页面查一次，有没标过的节假日就提示一键应用
-    LaunchedEffect(settings.termStartDate, settings.totalWeeks) {
+    LaunchedEffect(queryFrom, queryTo, queryRequest, active) {
+        if (!active) return@LaunchedEffect // 预加载页面不查询、不申请权限
         val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) ==
             PackageManager.PERMISSION_GRANTED
         if (!granted) {
-            permissionLauncher.launch(Manifest.permission.READ_CALENDAR)
             return@LaunchedEffect
         }
-        val from = termStartDate?.minusDays(14) ?: today.minusDays(30)
-        val to = termStartDate?.plusDays(settings.totalWeeks * 7L + 28) ?: today.plusDays(210)
-        val events = DeviceCalendar.query(context, from, to)
-        phoneCalendarEmpty = events.isEmpty()
-        pendingFromPhone = events.filter { event -> settings.overrides.none { it.date == event.date.toString() } }
+        calendarLoading = true
+        calendarError = ""
+        try {
+            val events = DeviceCalendar.query(context, queryFrom, queryTo, refresh = importAfterQuery)
+            phoneEvents = events
+            if (importAfterQuery) applyHolidays(events)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            calendarError = "读取系统日历失败：${error.message ?: error.javaClass.simpleName}"
+        } finally {
+            calendarLoading = false
+            importAfterQuery = false
+        }
     }
 
     fun applyBuiltInArrangement() {
@@ -157,7 +192,7 @@ fun CalendarScreen(
                 selected = true,
                 kind = entry.kind,
                 swapToDayOfWeek = entry.swapToDayOfWeek,
-                swapToWeek = WeekCalc.weekOf(termStartDate, LocalDate.parse(entry.date)),
+                swapToWeek = WeekCalc.teachingWeek(settings, LocalDate.parse(entry.date)),
             )
         }
         importMessage = ""
@@ -175,8 +210,18 @@ fun CalendarScreen(
         Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(8.dp)
+            .padding(16.dp)
     ) {
+        Text("教学日历", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text(
+            "查看每月课程与假期，点击日期可设置放假或调整上课安排。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
+        )
+        TextButton(onClick = { month = YearMonth.now() }, modifier = Modifier.align(Alignment.End)) {
+            Text("回本月")
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = { month = month.minusMonths(1) }) { Text("◀") }
             Spacer(Modifier.weight(1f))
@@ -210,12 +255,12 @@ fun CalendarScreen(
                 for (col in 0 until 7) {
                     val dayNumber = row * 7 + col - leading + 1
                     if (dayNumber < 1 || dayNumber > daysInMonth) {
-                        Box(Modifier.weight(1f).aspectRatio(0.85f))
+                        Box(Modifier.weight(1f).heightIn(min = 72.dp))
                         continue
                     }
                     val date = month.atDay(dayNumber)
                     val override = WeekCalc.overrideOf(settings, date)
-                    val classes = WeekCalc.coursesOn(settings, courses, date)
+                    val classes = monthCourses[date].orEmpty()
                     val inTerm = termStartDate != null && termEndDate != null &&
                         !date.isBefore(termStartDate) && !date.isAfter(termEndDate)
                     val vacation = termStartDate != null && !inTerm
@@ -230,7 +275,7 @@ fun CalendarScreen(
                     Column(
                         Modifier
                             .weight(1f)
-                            .aspectRatio(0.85f)
+                            .heightIn(min = 72.dp)
                             .padding(1.dp)
                             .background(bg, RoundedCornerShape(4.dp))
                             .border(
@@ -298,10 +343,28 @@ fun CalendarScreen(
             }
         }
 
-        Row(Modifier.padding(top = 8.dp)) {
-            Button(onClick = { ensurePermissionThenQuery() }) { Text("从手机日历导入") }
-            Spacer(Modifier.width(8.dp))
-            OutlinedButton(onClick = { applyBuiltInArrangement() }) { Text("内置 2026 安排") }
+        if (calendarLoading) {
+            LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
+            Text(if (phoneEvents == null) "正在读取系统日历…" else "正在刷新系统日历…", fontSize = 11.sp)
+        }
+        if (calendarError.isNotBlank()) {
+            Text(calendarError, color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+        }
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Button(
+                onClick = { ensurePermissionThenQuery() },
+                enabled = !calendarLoading,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(if (phoneEvents == null) "从手机日历导入" else "刷新并导入手机日历")
+            }
+            OutlinedButton(
+                onClick = { applyBuiltInArrangement() },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("内置 2026 安排") }
         }
         if (importMessage.isNotBlank()) {
             Text(importMessage, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
@@ -358,7 +421,7 @@ fun CalendarScreen(
 
     editingDate?.let { date ->
         val existing = WeekCalc.overrideOf(settings, date)
-        val week = WeekCalc.weekOf(termStartDate, date)
+        val week = WeekCalc.teachingWeek(settings, date)
         DayEditDialog(
             date = date,
             currentWeek = week,
@@ -441,6 +504,11 @@ private fun HolidayImportDialog(
                                 Text("${row.event.date} ${row.event.title}", fontSize = 13.sp)
                                 Text(row.event.calendarName, fontSize = 10.sp)
                             }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
                             FilterChip(
                                 selected = row.kind == DayKind.HOLIDAY,
                                 onClick = {
@@ -448,7 +516,6 @@ private fun HolidayImportDialog(
                                 },
                                 label = { Text("放假") },
                             )
-                            Spacer(Modifier.width(4.dp))
                             FilterChip(
                                 selected = row.kind == DayKind.SWAP,
                                 onClick = {

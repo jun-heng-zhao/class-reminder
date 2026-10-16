@@ -1,3 +1,4 @@
+// 图片识别、结果核对与本地导入。
 package com.balance.classreminder.ui
 
 import android.content.ClipData
@@ -7,9 +8,10 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -31,7 +33,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -60,6 +61,7 @@ private enum class ImportKind(val label: String, val hint: String) {
     CALENDAR("校历图片", "教学校历，用来定「第一周」是哪天、一学期多少教学周"),
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ImportScreen(
     settings: AppSettings,
@@ -151,12 +153,20 @@ fun ImportScreen(
         Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(12.dp)
+            .padding(16.dp)
     ) {
-        Text("导入", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        Text("图片只在本机识别，不联网。识别完先核对，再决定要不要应用。", fontSize = 12.sp)
+        Text("导入", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text(
+            "图片只在本机识别，不联网。识别完先核对，再决定要不要应用。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp),
+        )
 
-        Row(Modifier.padding(vertical = 6.dp)) {
+        FlowRow(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             ImportKind.entries.forEach { k ->
                 FilterChip(
                     selected = kind == k,
@@ -166,26 +176,28 @@ fun ImportScreen(
                         status = ""
                     },
                     label = { Text(k.label) },
-                    modifier = Modifier.padding(end = 6.dp),
+                    enabled = !busy,
                 )
             }
         }
-        Text(kind.hint, fontSize = 11.sp)
+        Text(kind.hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
+        FlowRow(
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             Button(
                 onClick = {
                     picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                 },
                 enabled = !busy,
             ) { Text("相册选图") }
-            Spacer(Modifier.width(8.dp))
             OutlinedButton(
                 onClick = { filePicker.launch(arrayOf("image/*")) },
                 enabled = !busy,
             ) { Text("从文件选择") }
             if (busy) {
-                Spacer(Modifier.width(12.dp))
                 CircularProgressIndicator(Modifier.width(22.dp).height(22.dp))
             }
         }
@@ -230,6 +242,7 @@ fun ImportScreen(
                     Text("从校历里读到的", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     Text("第一周周一：${result.firstWeekMonday ?: "没读到"}", fontSize = 13.sp)
                     Text("教学周数：${result.totalWeeks?.toString() ?: "没读到"}", fontSize = 13.sp)
+                    Text("应用后会清除手动周次校准，改按校历开学日计算。", fontSize = 12.sp)
                     result.hints.forEach { Text("· $it", fontSize = 11.sp) }
                 }
             }
@@ -239,9 +252,11 @@ fun ImportScreen(
                         settings.copy(
                             termStartDate = result.firstWeekMonday ?: settings.termStartDate,
                             totalWeeks = result.totalWeeks ?: settings.totalWeeks,
+                            manualWeek = 0,
+                            manualWeekMonday = "",
                         )
                     )
-                    status = "已应用到设置"
+                    status = "校历已应用，手动校准已清除，周次按开学日计算喵"
                 },
                 enabled = result.firstWeekMonday != null || result.totalWeeks != null,
                 modifier = Modifier.padding(bottom = 8.dp),
@@ -256,7 +271,7 @@ fun ImportScreen(
                     if (raws.getOrNull(index)?.isNotBlank() == true) {
                         Text("原图识别：" + raws[index].replace("\n", " / "), fontSize = 10.sp)
                     }
-                    Row {
+                    FlowRow {
                         TextButton(onClick = { editingIndex = index }) { Text("修改") }
                         TextButton(onClick = {
                             drafts = drafts.filterIndexed { i, _ -> i != index }
@@ -268,9 +283,12 @@ fun ImportScreen(
         }
 
         if (drafts.isNotEmpty()) {
-            Row(Modifier.padding(top = 8.dp)) {
+            FlowRow(
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 Button(onClick = { onImportCourses(drafts) }) { Text("导入这 ${drafts.size} 门课") }
-                Spacer(Modifier.width(8.dp))
                 OutlinedButton(onClick = {
                     resetResults()
                     status = "已清空识别结果"
@@ -290,7 +308,7 @@ fun ImportScreen(
         }
 
         Text(
-            "课表识别不准很正常：表格越规整越准。识别完在这里改，导入后也能在课表页点格子改。",
+            "课表越规整，识别越准确。请先核对识别结果；导入后也可以在周课表中修改课程。",
             fontSize = 11.sp,
             modifier = Modifier.padding(top = 12.dp, bottom = 16.dp),
         )
