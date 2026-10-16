@@ -1,5 +1,13 @@
 # 规格：课表提醒（ClassReminder）
 
+## 2026-10-16 v1.0.5 合并发布验证
+
+- 保留本地三栏导航、今日/周课表、设置草稿保存校验、教学周校准与异步日历缓存；合入远程多年份节假日、学期范围限制和停止响铃链路，保留通知权限检查。
+- 验证环境：`GRADLE_USER_HOME=/home/Balance/AgentWork/.gradle-home ANDROID_USER_HOME=/home/Balance/AgentWork/.android-home`；执行 `/home/Balance/AgentWork/.gradle-home/dist/gradle-9.6.0/bin/gradle -p /home/Balance/AgentWork/ClassReminder testDebugUnitTest assembleRelease lintDebug --rerun-tasks` → BUILD SUCCESSFUL，80 个任务实际执行，65 项测试零失败。
+- Release APK 的包名为 `com.balance.classreminder`，versionName 1.0.5 / versionCode 6，apksigner v2 签名验证通过；lint 无 error，保留 16 个 warning、3 个 hint，另有 CalendarParser 的既有冗余 Elvis 编译警告。
+- 当前 OCR 测试样本及相关断言已匿名化，保留坐标、周次与噪声结构；不改写历史，历史提交中的原始个人样本仍存在。公共图片及校历未删除。
+- 本轮未做真机安装、通知响铃/停止、长时后台与耗电验证；上述自动化结果不能替代真机验收。
+
 ## 2026-10-15 新需求验收
 
 - 手动校准当前教学周：保存校准周数和所在周周一，之后每逢周一自动递增；可恢复按开学日计算。首页、日历、课前提醒使用同一基准，旧备份保持兼容。
@@ -114,6 +122,7 @@ fun weekOf(termStart: LocalDate, date: LocalDate): Int =
 
 - JUnit4 单测，覆盖三块纯逻辑：周次计算、单双周过滤、OCR 网格解析（用合成的 OcrBox 模拟 ML Kit 输出）。
 - UI 与通知不做自动化测试，靠真机手动验证：装到 487ba63c 上，导入样例图、改一条课、把提醒时间设成 2 分钟后验证通知。
+- 涉及提醒链路的改动到真机上验：`dumpsys alarm` 看挂了哪些闹钟、`dumpsys notification` 看通知里有没有「停止响铃」、`dumpsys audio` 看 `USAGE_ALARM` 播放器是否随停止而释放。给某天标「放假」后当天闹钟必须立刻消失。
 - 每轮改动后必须 `assembleDebug` 通过。
 
 ## 边界（Boundaries）
@@ -128,3 +137,8 @@ fun weekOf(termStart: LocalDate, date: LocalDate): Int =
 2. **作息时间**：内置一套常见的 12 节时间（8:00 起，上下午+晚上），可在设置页逐节修改。
 3. **节次合并**：单元格跨多节（如 1-2 节连上）会被识别成相邻两条同名课，解析后用"同一天相邻节同名同地点则合并"修复。
 4. **省电限制**：HyperOS 上需用户手动允许"自启动"和"后台弹出界面"，应用内给提示和跳转入口。
+5. **法定节假日**：MIUI / HyperOS 不通过 CalendarContract 对第三方应用暴露「中国法定节假日」，所以日历页优先读系统日历，读不到就自动套用内置数据（`data/BuiltInHolidays.kt`），假期不再误发提醒。2025 / 2026 是国务院完整安排（含调休上班日）；其他年份退到可计算的法定假日（元旦、春节除夕~初三、清明、劳动节、国庆），端午与中秋需要系统日历或手动标注。
+6. **学期区间**：`WeekCalc.courseOnDate` 只认第 1 周~总周数之间的日子，区间外（寒暑假）不排课也不提醒 —— 有的课 `endWeek` 写得比总周数大，光看周次范围会算到假期里去。
+7. **强提醒铃声**（`remind/AlarmPlayer.kt`）：铃声由全局单例播放，通知上的「停止响铃」、划掉通知、点开应用、以及 1 分钟超时都会 `stop()` 并释放播放器，避免"响了只能杀进程"。
+8. **桌面图标不可自定义**（已尝试后放弃）：安卓不允许应用在运行时替换自己的 launcher 图标（必须是编译期资源），HyperOS 桌面也会拒绝第三方的 `requestPinShortcut` / `requestPinAppWidget`（日志：`add shortcut failed, ... has no permission`，即使声明了 `com.android.launcher.permission.INSTALL_SHORTCUT` 也没用，而且这两个 API 会返回 true，靠返回值判断不了成败）。真要换图标只能用户自己在 MIUI 桌面里改。
+9. **导航结构**（`ui/AppRoot.kt` + `ui/SettingsScreen.kt`）：课表 / 日历 / 设置三个主页面用 `HorizontalPager` 装，底部导航与左右滑动共用页码；图片导入位于设置分类内。分类共享外层草稿，返回键先回设置菜单，不自动保存。

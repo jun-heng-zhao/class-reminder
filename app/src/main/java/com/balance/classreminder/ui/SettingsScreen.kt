@@ -17,13 +17,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
-import com.balance.classreminder.data.Store
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -43,9 +42,14 @@ import androidx.core.app.NotificationManagerCompat
 import com.balance.classreminder.data.AppSettings
 import com.balance.classreminder.data.Course
 import com.balance.classreminder.data.PeriodTime
+import com.balance.classreminder.data.Store
 import com.balance.classreminder.domain.WeekCalc
 import java.time.LocalDate
 
+/**
+ * 设置：一级是分组菜单，点进去才是具体设置项。
+ * 分类内容共享外层草稿，返回键或「返回设置」回到菜单。
+ */
 @Composable
 fun SettingsScreen(
     settings: AppSettings,

@@ -273,4 +273,52 @@ class WeekCalcTest {
         assertEquals(5, WeekCalc.reminderMinutes(custom, settings))
         assertEquals(20, WeekCalc.reminderMinutes(course(), settings))
     }
+
+    @Test
+    fun upcoming_skipsHoliday() {
+        // 日历页标了「放假」，这天就不该再挂闹钟
+        val settings = AppSettings(
+            termStartDate = term.toString(),
+            overrides = listOf(DayOverride(term.toString(), DayKind.HOLIDAY)),
+        )
+        val list = WeekCalc.upcoming(
+            listOf(course(dayOfWeek = 1)),
+            settings,
+            LocalDateTime.of(term, LocalTime.of(6, 0)),
+            horizonDays = 0,
+        )
+        assertTrue(list.isEmpty())
+    }
+
+    @Test
+    fun vacation_neverSchedulesClasses() {
+        // 总周数只有 2 周，课程却写到第 16 周：第 3 周开始是假期，不能再排课提醒
+        val settings = AppSettings(termStartDate = term.toString(), totalWeeks = 2)
+        val longCourse = course(dayOfWeek = 1, endWeek = 16)
+        val holidayMonday = term.plusWeeks(2)
+
+        assertFalse(WeekCalc.inTerm(settings, holidayMonday))
+        assertTrue(WeekCalc.inTerm(settings, term))
+        assertFalse(WeekCalc.courseOnDate(longCourse, term, settings, holidayMonday))
+        assertTrue(
+            WeekCalc.upcoming(
+                listOf(longCourse),
+                settings,
+                LocalDateTime.of(holidayMonday, LocalTime.of(7, 0)),
+                horizonDays = 0,
+            ).isEmpty()
+        )
+    }
+
+    @Test
+    fun calibratedTermBoundary_usesSameBaselineForCalendarAndReminders() {
+        val settings = AppSettings(termStartDate = term.toString(), totalWeeks = 2,
+            manualWeek = 2, manualWeekMonday = "2026-10-12") // 校准后第二周不再按旧开学日判断
+        val lastMonday = LocalDate.parse("2026-10-12")
+        val lesson = course(endWeek = 16)
+        assertTrue(WeekCalc.inTerm(settings, lastMonday))
+        assertEquals(1, WeekCalc.coursesOn(settings, listOf(lesson), lastMonday).size)
+        assertFalse(WeekCalc.inTerm(settings, lastMonday.plusWeeks(1)))
+        assertTrue(WeekCalc.upcoming(listOf(lesson), settings, lastMonday.plusWeeks(1).atStartOfDay(), 0).isEmpty())
+    }
 }

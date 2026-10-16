@@ -33,6 +33,11 @@
             android:name=".remind.ReminderReceiver"
             android:exported="false" />
 
+        <!-- 通知上的「停止响铃」与划掉通知的收尾 -->
+        <receiver
+            android:name=".remind.StopAlarmReceiver"
+            android:exported="false" />
+
         <receiver
             android:name=".remind.BootReceiver"
             android:exported="false">

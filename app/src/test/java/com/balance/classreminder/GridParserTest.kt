@@ -177,13 +177,13 @@ class GridParserTest {
             // 截图里的浏览器标签、地址栏、状态栏，都不该进网格
             box("12:34", 30, 10, w = 60),
             box("我的课表", 130, 60, w = 90),
-            box("华侨大学教务处", 200, 40, w = 150),
-            box("jwapp.hqu.edu.cn/jwapp/sys/wdkb", 400, 110, w = 400),
+            box("示例大学教务处", 200, 40, w = 150),
+            box("jwapp.example.edu/jwapp/sys/wdkb", 400, 110, w = 400),
         ) + bandHeader() + dayColumn() + listOf(
             // 周一那一行：格子里的 4 行文字垂直排布在"一"这一行附近
-            box("移动软件开发(3学分)", 250, 265, w = 220),
-            box("郭武斌", 250, 285, w = 80),
-            box("经3-1", 250, 305, w = 70),
+            box("示例软件开发(3学分)", 250, 265, w = 220),
+            box("甲老师", 250, 285, w = 80),
+            box("教3-1", 250, 305, w = 70),
             box("1-16周 第1节-第2节", 250, 325, w = 180),
             // 周二那一行
             box("大学英语(2学分)", 450, 365, w = 180),
@@ -195,12 +195,12 @@ class GridParserTest {
         val result = GridParser.parse(boxes, defaultTotalWeeks = 20)
         assertEquals(2, result.courses.size)
 
-        val mm = result.courses.first { it.name == "移动软件开发" }
+        val mm = result.courses.first { it.name == "示例软件开发" }
         assertEquals(1, mm.dayOfWeek)          // 一
         assertEquals(1, mm.period)             // 第1节
         assertEquals(2, mm.endPeriod)          // 第2节
-        assertEquals("经3-1", mm.location)
-        assertEquals("郭武斌", mm.teacher)
+        assertEquals("教3-1", mm.location)
+        assertEquals("甲老师", mm.teacher)
         assertEquals(1, mm.startWeek)
         assertEquals(16, mm.endWeek)
 
@@ -232,14 +232,14 @@ class GridParserTest {
         assertEquals(5, pe.endPeriod)
     }
 
-    /** 只上某几周的课（华大课表里真有 15、16 周这种写法）。 */
+    /** 只上某几周的课，保留不规则周次写法。 */
     @Test
     fun parse_keepsIrregularWeekSpec() {
         val boxes = headerRow() + listOf(
             box("3", 20, 55, w = 20),
-            box("形势与政策(五)(0.25学分)", 315, 50, w = 240),
-            box("徐文福", 315, 70, w = 80),
-            box("经302", 315, 90, w = 70),
+            box("示例与政策(五)(0.25学分)", 315, 50, w = 240),
+            box("乙老师", 315, 70, w = 80),
+            box("教302", 315, 90, w = 70),
             box("15,16周 第3节-第4节", 315, 110, w = 200),
         )
 
@@ -247,8 +247,8 @@ class GridParserTest {
 
         assertEquals(1, result.courses.size)
         val c = result.courses[0]
-        assertEquals("形势与政策(五)", c.name)
-        assertEquals("经302", c.location)
+        assertEquals("示例与政策(五)", c.name)
+        assertEquals("教302", c.location)
         assertEquals("15,16", c.weekSpec)
         assertEquals(15, c.startWeek)
         assertEquals(16, c.endWeek)
@@ -272,7 +272,7 @@ class GridParserTest {
     }
 
     /**
-     * 用手机上真机跑出来的 OCR 原文（带坐标）回放一遍，
+    * 用匿名化的真机 OCR 样本（保留坐标和识别噪声）回放一遍，
      * 保证"教务系统截图 + 浏览器边框 + 缺星期字"这种真实情况不会退化。
      */
     @Test
@@ -293,8 +293,8 @@ class GridParserTest {
         result.courses.forEach { println("REAL COURSE: $it") }
 
         val names = result.courses.map { it.name }
-        assertTrue("应该认出移动软件开发，实际=$names", names.any { it.contains("移动软件") })
-        assertTrue("应该认出决策支持系统，实际=$names", names.any { it.contains("决策支持") })
-        assertTrue("应该认出形势与政策，实际=$names", names.any { it.contains("形势与政策") })
+        assertTrue("应该认出示例软件开发，实际=$names", names.any { it.contains("示例软件") })
+        assertTrue("应该认出示例支持系统，实际=$names", names.any { it.contains("示例支持") })
+        assertTrue("应该认出示例与政策，实际=$names", names.any { it.contains("示例与政策") })
     }
 }

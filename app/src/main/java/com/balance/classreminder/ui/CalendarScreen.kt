@@ -69,7 +69,7 @@ private val COLOR_VACATION = Color(0xFFCFD8DC)
 /**
  * 教学日历：看整月的上课情况，调整放假/调休/假期。
  *
- * 法定节假日走系统日历接口（CalendarContract）读取，读不到再退回内置的 2026 安排；
+ * 法定节假日走系统日历接口（CalendarContract）读取，读不到再退回多年份内置安排；
  * 学期区间（第一周周一到最后一周末）之外的日期按学生假期显示（寒暑假）。
  */
 @Composable
@@ -111,7 +111,7 @@ fun CalendarScreen(
     fun applyHolidays(events: List<DeviceCalendar.HolidayEvent>) {
         if (events.isEmpty()) {
             importMessage = "手机日历里没有节假日事件。系统日历要先订阅「中国法定节假日」（日历 App → 设置 → 节假日）；" +
-                "不想订阅就用「内置 2026 安排」，或者直接点日期手动标。"
+                "不想订阅就用「内置安排」，或者直接点日期手动标。"
             return
         }
         holidayRows = events.map { event ->
@@ -151,12 +151,38 @@ fun CalendarScreen(
         }
     }
 
-    // 走系统日历接口：进页面查一次，有没标过的节假日就提示一键应用
+    /**
+     * 系统日历里读不到节假日（MIUI / HyperOS 很常见）时，自动把内置安排铺进 overrides。
+     * 已经自己标过的日期一律不动，所以反复进页也不会覆盖用户的手动设置。
+     */
+    fun autoApplyBuiltIn() {
+        val entries = BuiltInHolidays.entriesForTerm(termStartDate, settings.totalWeeks)
+        val known = settings.overrides.map { it.date }.toSet()
+        val missing = entries.filterNot { it.date in known }
+        if (missing.isEmpty()) return
+        val next = settings.overrides.toMutableList()
+        missing.forEach { entry ->
+            val date = LocalDate.parse(entry.date)
+            next += DayOverride(
+                date = entry.date,
+                kind = entry.kind,
+                swapToDayOfWeek = entry.swapToDayOfWeek,
+                note = entry.note,
+                swapToWeek = WeekCalc.teachingWeek(settings, date),
+            )
+        }
+        onChange(settings.copy(overrides = next.sortedBy { it.date }))
+        importMessage = "系统日历里读不到节假日，已自动套用内置安排 ${missing.size} 天；点具体日期可以单独改。"
+    }
+
+    // 走系统日历接口：进页面查一次；有节假日就提示一键应用，读不到就自动用内置数据兜底，
+    // 否则假期会一直按平日排课，提醒照发
     LaunchedEffect(queryFrom, queryTo, queryRequest, active) {
         if (!active) return@LaunchedEffect // 预加载页面不查询、不申请权限
         val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) ==
             PackageManager.PERMISSION_GRANTED
         if (!granted) {
+            autoApplyBuiltIn()
             return@LaunchedEffect
         }
         calendarLoading = true
@@ -164,11 +190,13 @@ fun CalendarScreen(
         try {
             val events = DeviceCalendar.query(context, queryFrom, queryTo, refresh = importAfterQuery)
             phoneEvents = events
-            if (importAfterQuery) applyHolidays(events)
+            if (events.isEmpty()) autoApplyBuiltIn()
+            else if (importAfterQuery) applyHolidays(events)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
             calendarError = "读取系统日历失败：${error.message ?: error.javaClass.simpleName}"
+            autoApplyBuiltIn()
         } finally {
             calendarLoading = false
             importAfterQuery = false
@@ -186,7 +214,7 @@ fun CalendarScreen(
                 event = DeviceCalendar.HolidayEvent(
                     date = LocalDate.parse(entry.date),
                     title = entry.note,
-                    calendarName = "内置：2026 年国务院放假安排",
+                    calendarName = "内置国务院放假安排",
                     isWorkday = entry.kind == DayKind.SWAP,
                 ),
                 selected = true,
@@ -315,13 +343,13 @@ fun CalendarScreen(
                     Text("系统日历里没有节假日数据", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     Text(
                         "MIUI 把法定节假日放在自家日历 App 里，第三方应用通过 CalendarContract 读不到。" +
-                            "用内置的 2026 年国务院放假安排一键铺上，放假标红、调休上班日先留空。",
+                            "用内置安排一键铺上，放假标红、调休上班日先留空。",
                         fontSize = 11.sp,
                     )
                     Button(
                         onClick = { applyBuiltInArrangement() },
                         modifier = Modifier.padding(top = 4.dp),
-                    ) { Text("应用内置 2026 安排") }
+                    ) { Text("应用内置安排") }
                 }
             }
         }
@@ -364,11 +392,18 @@ fun CalendarScreen(
             OutlinedButton(
                 onClick = { applyBuiltInArrangement() },
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("内置 2026 安排") }
+            ) { Text("内置安排") }
         }
         if (importMessage.isNotBlank()) {
             Text(importMessage, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
         }
+        Text(
+            "内置数据：" + BuiltInHolidays.officialYears.joinToString("/") +
+                " 年是国务院完整安排（含调休）；更靠后的年份只算得出元旦、春节、清明、劳动节、国庆，" +
+                "端午 / 中秋 请从手机日历导入或手动标。",
+            fontSize = 11.sp,
+            modifier = Modifier.padding(top = 4.dp),
+        )
 
         Text(
             "颜色：蓝=有课，红=放假，橙=调休（上班日先「待安排」，点进去选上哪天的课），灰=学期外（寒暑假），深蓝框=今天。",

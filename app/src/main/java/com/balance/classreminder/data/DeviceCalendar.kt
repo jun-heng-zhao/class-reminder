@@ -24,10 +24,13 @@ object DeviceCalendar {
         val isWorkday: Boolean,
     )
 
+    // 放假事件的标题通常就是「休」「假」「节」，调休上班是「班」「补」；
+    // 先判上班词再判放假词 —— 「调休」里带「休」，顺序反了会把调休上班日当成放假
     private val HOLIDAY_WORDS = listOf("休", "假", "节")
     private val WORKDAY_WORDS = listOf("班", "补", "调休", "上课")
     private data class Range(val from: LocalDate, val to: LocalDate, val zone: ZoneId)
     private val cache = CalendarQueryCache<Range, List<HolidayEvent>>() // 仅保留最近四个范围
+    private val MAX_TITLE_LENGTH = 8   // 只认短标题，免得把人家自己的「高等数学」当成节假日
 
     suspend fun query(
         context: Context,
@@ -77,10 +80,10 @@ object DeviceCalendar {
                 val lastDate = Instant.ofEpochMilli(if (end > begin) end - 1 else begin)
                     .atZone(eventZone).toLocalDate()
                 val isWorkday = WORKDAY_WORDS.any { title.contains(it) }
-                val isHoliday = HOLIDAY_WORDS.any { title.contains(it) }
+                val isHoliday = !isWorkday && HOLIDAY_WORDS.any { title.contains(it) }
                 var date = maxOf(firstDate, from)
                 val last = minOf(lastDate, to)
-                if (title.isBlank() || (!isWorkday && !isHoliday)) continue
+                if (title.isBlank() || title.length > MAX_TITLE_LENGTH || (!isWorkday && !isHoliday)) continue
                 while (!date.isAfter(last)) {
                     out += HolidayEvent(date, title, calendarName, isWorkday)
                     date = date.plusDays(1)
